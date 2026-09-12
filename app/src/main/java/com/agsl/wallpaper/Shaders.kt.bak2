@@ -1,0 +1,175 @@
+﻿package com.agsl.wallpaper
+
+object Shaders {
+    const val RENDER = """
+uniform float2 uResolution;
+uniform float uTime;
+uniform float4 uPointer1; // xy: 屏幕坐标, z: 触摸强度, w: 滤波手速
+uniform float4 uPointer2; // xy: 屏幕坐标, z: 触摸强度, w: 滤波手速
+
+float2 rotate(float2 p, float a) {
+    float c = cos(a), s = sin(a);
+    return float2(p.x * c - p.y * s, p.x * s + p.y * c);
+}
+
+float2 vortexFlow(float2 p, float2 center, float strength, float speed, float signVal, float epsExtra) {
+    float2 d = p - center;
+    float r2 = dot(d, d);
+
+    float cutoff = exp(-r2 * 2.8);
+
+    float effectiveStr = (strength + speed * 1.8) * signVal;
+
+    return effectiveStr *
+           float2(-d.y, d.x) /
+           (r2 + 0.015 + epsExtra) *
+           cutoff;
+}
+
+half4 main(float2 fragCoord) {
+    float minRes = min(uResolution.x, uResolution.y);
+    if (minRes <= 0.0)
+        return half4(0.008, 0.010, 0.018, 1.0);
+
+    float2 uv =
+        (fragCoord - 0.5 * uResolution) /
+        minRes;
+
+    float2 p1 =
+        (uPointer1.xy - 0.5 * uResolution) /
+        minRes;
+
+    float2 p2 =
+        (uPointer2.xy - 0.5 * uResolution) /
+        minRes;
+
+    float pairDist2 = dot(p1 - p2, p1 - p2);
+    float epsExtra = (uPointer1.z > 0.001 && uPointer2.z > 0.001)
+        ? 0.05 * exp(-pairDist2 * 5.0)
+        : 0.0;
+
+    float2 velocity = float2(0.0);
+
+    if (uPointer1.z > 0.001) {
+        velocity += vortexFlow(
+            uv,
+            p1,
+            0.38 * uPointer1.z,
+            uPointer1.w,
+            1.0,
+            epsExtra
+        );
+    }
+
+    if (uPointer2.z > 0.001) {
+        velocity += vortexFlow(
+            uv,
+            p2,
+            0.38 * uPointer2.z,
+            uPointer2.w,
+            -1.0,
+            epsExtra
+        );
+    }
+
+    float t = uTime * 0.22;
+
+    float2 ambientDrift = float2(
+        sin(t * 0.7) * 0.12,
+        cos(t * 0.5) * 0.10
+    );
+
+    velocity += vortexFlow(
+        uv,
+        ambientDrift,
+        0.06,
+        0.0,
+        1.0,
+        0.0
+    );
+
+    float vLen = length(velocity);
+    float vSat = vLen / (1.0 + vLen * 0.22);
+    velocity *= (vSat / max(vLen, 1e-5));
+
+    float2 warpedUV = uv + velocity * 0.07;
+
+    float wavePattern = 0.0;
+    float freq = 5.2;
+    float amp = 0.45;
+
+    for (int i = 0; i < 3; i++) {
+        float2 q =
+            rotate(
+                warpedUV,
+                float(i) * 1.047 + t * 0.15
+            );
+
+        float gyroid =
+            sin(q.x * freq + t) *
+            cos(q.y * freq - t * 0.8)
+            +
+            sin(q.y * freq * 0.85 + t * 0.4);
+
+        wavePattern += abs(gyroid) * amp;
+
+        freq *= 1.72;
+        amp *= 0.55;
+    }
+
+    float shear = length(velocity);
+
+    float ridge = wavePattern - 0.55;
+    float glow = 0.42 * exp(-ridge * ridge * 40.0);
+
+    float shearRaw = shear * (0.14 + 0.28 * uPointer1.w);
+    float shearGlow = shearRaw / (1.0 + shearRaw * 1.1);
+    glow += shearGlow;
+
+    half3 cBackground =
+        half3(0.006, 0.009, 0.018);
+
+    half3 cDeepBlue =
+        half3(0.04, 0.22, 0.45);
+
+    half3 cCyan =
+        half3(0.15, 0.75, 0.85);
+
+    half3 cTeal =
+        half3(0.08, 0.55, 0.60);
+
+    half3 cSoftViolet =
+        half3(0.30, 0.24, 0.50);
+
+    float hueA = sin(wavePattern * 3.1 + t * 0.6);
+    float hueB = cos(warpedUV.x * 1.4 - warpedUV.y * 1.1 + t * 0.35);
+
+    half3 cCyanMixed = mix(cCyan, cTeal, half(smoothstep(-0.2, 0.2, hueA)));
+    cCyanMixed = mix(cCyanMixed, cSoftViolet, half(smoothstep(0.4, 0.85, hueB) * 0.35));
+
+    half3 color =
+        cBackground;
+
+    color = mix(
+        color,
+        cDeepBlue,
+        half(smoothstep(0.12, 0.55, glow))
+    );
+
+    color = mix(
+        color,
+        cCyanMixed,
+        half(smoothstep(0.65, 1.35, glow))
+    );
+
+    color =
+        half3(1.0) -
+        exp(-color * 1.25);
+
+    return half4(
+        clamp(color, 0.0, 1.0),
+        1.0
+    );
+}
+"""
+}

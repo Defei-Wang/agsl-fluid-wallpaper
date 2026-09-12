@@ -1,197 +1,137 @@
 ﻿package com.agsl.wallpaper
 
 object Shaders {
-
     const val RENDER = """
 uniform float2 uResolution;
 uniform float uTime;
+uniform float4 uPointer1;    // xy: 屏幕坐标, z: isDown, w: 手速
+uniform float4 uPointerVel1; // xy: 速度矢量 (px/s), zw: 0
+uniform float4 uPointer2;
+uniform float4 uPointerVel2;
+uniform float4 uVortices[16];// xy: 坐标, z: 环量强度 Gamma, w: 涡核尺寸
+uniform float uVortexCount;
+uniform float uTurbulence;   // 剧烈搅动产生的微观湍流破碎度
 
-uniform float4 uPointer1; // xy: 坐标 z: 按下态 w: 手速
-uniform float4 uPointer2; // xy: 坐标 z: 按下态 w: 手速
+float2 rotate(float2 p, float a) {
+    float c = cos(a), s = sin(a);
+    return float2(p.x * c - p.y * s, p.x * s + p.y * c);
+}
 
-float hash21(float2 p) {
-    return fract(
-        sin(dot(p, float2(12.9898, 78.233))) *
-        43758.5453
-    );
+// 纯径向势流位移（无旋场：Curl = 0）：仅在点击按压处向外平缓挤压油膜
+float2 radialPotentialPush(float2 p, float2 center, float strength, float radius) {
+    float2 d = p - center;
+    float r = length(d);
+    float env = exp(-r * r / (radius * radius * 2.0));
+    return normalize(d + 1e-5) * (strength * env);
+}
+
+// 二维黏性 Lamb-Oseen 涡旋（有旋场：Curl != 0）
+float2 lambOseenFlow(float2 p, float2 center, float gamma, float coreR) {
+    float2 d = p - center;
+    float r2 = dot(d, d);
+    float factor = (1.0 - exp(-r2 / (coreR * coreR))) / (r2 + 0.005);
+    return gamma * float2(-d.y, d.x) * factor * exp(-r2 * 2.6);
 }
 
 half4 main(float2 fragCoord) {
-
     float minRes = min(uResolution.x, uResolution.y);
+    if (minRes <= 0.0) return half4(0.002, 0.004, 0.008, 1.0);
 
-    if (minRes <= 0.0)
-        return half4(0.001, 0.002, 0.004, 1.0);
+    float2 uv = (fragCoord - 0.5 * uResolution) / minRes;
+    float2 p1 = (uPointer1.xy - 0.5 * uResolution) / minRes;
+    float2 p2 = (uPointer2.xy - 0.5 * uResolution) / minRes;
 
-    float2 uv =
-        (fragCoord - 0.5 * uResolution) / minRes;
-
-    float2 p1 =
-        (uPointer1.xy - 0.5 * uResolution) / minRes;
-
-    float2 p2 =
-        (uPointer2.xy - 0.5 * uResolution) / minRes;
-
-    float displacement = 0.0;
-    float tearEffect = 1.0;
-
-    // =========================================================
-    // 1. 非发光型触控形变
-    //
-    // 保留触摸互动，但去掉原来的强圆形“鼓包亮圈”
-    // =========================================================
-
-    if (uPointer1.z > 0.01) {
-
-        float d1 = length(uv - p1);
-
-        float r1 =
-            0.10 +
-            uPointer1.w * 0.10;
-
-        float w1 =
-            smoothstep(r1, 0.0, d1);
-
-        // 极弱形变，只负责扰动表面
-        displacement +=
-            w1 *
-            (0.010 + uPointer1.w * 0.018);
+    // 1. 无旋径向势排挤（静止点击绝不产生自旋）
+    float2 potentialDisp = float2(0.0);
+    if (uPointer1.z > 0.001) {
+        float pushStr = 0.045 * uPointer1.z;
+        potentialDisp += radialPotentialPush(uv, p1, pushStr, 0.16);
+    }
+    if (uPointer2.z > 0.001) {
+        float pushStr = 0.045 * uPointer2.z;
+        potentialDisp += radialPotentialPush(uv, p2, pushStr, 0.16);
     }
 
-    if (uPointer2.z > 0.01) {
-
+    // 2. 动量拖拽与剪切位移（直线拖动产生偶极排挤，无额外旋度输入）
+    float2 dragDisp = float2(0.0);
+    if (uPointer1.z > 0.001) {
+        float2 vel1 = (uPointerVel1.xy / minRes);
+        float d1 = length(uv - p1);
+        dragDisp += vel1 * 0.07 * exp(-d1 * d1 / 0.025);
+    }
+    if (uPointer2.z > 0.001) {
+        float2 vel2 = (uPointerVel2.xy / minRes);
         float d2 = length(uv - p2);
+        dragDisp += vel2 * 0.07 * exp(-d2 * d2 / 0.025);
+    }
 
-        float r2 =
-            0.10 +
-            uPointer2.w * 0.10;
+    // 基础流形位移结合
+    float2 woundUV = uv - potentialDisp - dragDisp;
 
-        float w2 =
-            smoothstep(r2, 0.0, d2);
-
-        displacement +=
-            w2 *
-            (0.010 + uPointer2.w * 0.018);
-
-        // 双指 Fusion 保留
-        float midDist =
-            length(p1 - p2);
-
-        if (midDist < 0.55) {
-
-            float fusion =
-                smoothstep(0.0, 0.55, midDist);
-
-            displacement *=
-                mix(1.12, 1.0, fusion);
+    // 3. 历史自旋角动量积分场（绕圈搅动注入的有旋点涡）
+    for (int i = 0; i < 16; i++) {
+        float activeFlag = step(float(i), uVortexCount - 0.5);
+        float4 v = uVortices[i];
+        if (activeFlag > 0.5 && abs(v.z) > 0.01) {
+            float2 vPos = (v.xy - 0.5 * uResolution) / minRes;
+            float2 d = woundUV - vPos;
+            float r2 = dot(d, d);
+            float core = v.w * v.w;
+            // 随角动量强度积分的局部流动旋转扭曲
+            float twist = v.z * exp(-r2 / (2.2 * core));
+            woundUV = vPos + rotate(d, twist);
         }
     }
 
-    // =========================================================
-    // 2. 快速滑动 Slicing
-    // 保留原来的互动
-    // =========================================================
+    // 4. 背景本底宏观对流微场
+    float t = uTime * 0.16;
+    float2 ambientCenter = float2(sin(t * 0.6) * 0.12, cos(t * 0.5) * 0.09);
+    float2 velocity = lambOseenFlow(woundUV, ambientCenter, 0.035, 0.25);
 
-    if (
-        uPointer1.z > 0.01 &&
-        uPointer1.w > 0.18
-    ) {
+    // 5. 坐标平流
+    float2 warpedUV = woundUV + velocity * 0.08;
 
-        // 使用固定稳定方向，
-        // 避免原来的假速度切线造成异常
-        float2 velDir = normalize(
-            float2(1.0, 0.0)
-        );
-
-        float lineDist =
-            abs(
-                dot(
-                    uv - p1,
-                    float2(-velDir.y, velDir.x)
-                )
-            );
-
-        float d1 =
-            length(uv - p1);
-
-        tearEffect *=
-            smoothstep(
-                0.004,
-                0.025,
-                lineDist + d1 * 0.15
-            );
+    // 剧烈搅动引起的微观紊流破裂调制
+    float turbWarp = 0.0;
+    if (uTurbulence > 0.05) {
+        turbWarp = sin(warpedUV.x * 28.0 + t * 2.0) * cos(warpedUV.y * 28.0 - t * 2.0) * uTurbulence * 0.08;
     }
 
-    // =========================================================
-    // 3. 表面
-    // =========================================================
+    // 6. 三维极小曲面谐波相分离结构（基底自组织场）
+    float wavePattern = 0.0;
+    float freq = 4.8;
+    float amp = 0.45;
+    for (int k = 0; k < 3; k++) {
+        float2 q = rotate(warpedUV, float(k) * 1.047 + t * 0.10);
+        float gyroid = sin(q.x * freq + t) * cos(q.y * freq - t * 0.7)
+                     + sin(q.y * freq * 0.85 + t * 0.35);
+        wavePattern += abs(gyroid) * amp;
+        freq *= 1.75;
+        amp *= 0.55;
+    }
 
-    float2 warpedUV =
-        uv - displacement;
+    wavePattern += turbWarp;
 
-    float t =
-        uTime * 0.07;
+    // 7. 色度阶梯映射：深邃曜石黑底色与冷光条纹（无紫光斑）
+    float ridge = wavePattern - 0.52;
+    float glow = 0.45 * exp(-ridge * ridge * 48.0);
+    glow += length(velocity) * 0.25;
 
-    float q =
-        sin(
-            warpedUV.x * 13.0 + t
-        ) *
-        cos(
-            warpedUV.y * 13.0 - t
-        )
-        +
-        cos(
-            length(warpedUV * 1.4) * 16.0
-            - t * 1.2
-        );
+    half3 cAbyss   = half3(0.002, 0.004, 0.008);
+    half3 cDeepSea = half3(0.020, 0.120, 0.280);
+    half3 cTeal    = half3(0.050, 0.400, 0.520);
+    half3 cCyan    = half3(0.120, 0.680, 0.800);
 
-    float sheen =
-        (q * 0.5 + 0.5) *
-        tearEffect;
+    float hue = sin(wavePattern * 3.1415 + t * 0.4);
+    half3 cDynamic = mix(cTeal, cCyan, half(smoothstep(-0.2, 0.4, hue)));
 
-    // =========================================================
-    // 4. 纯深色油膜
-    //
-    // 删除所有可能产生紫/粉色高亮的颜色通道
-    // =========================================================
+    half3 color = cAbyss;
+    color = mix(color, cDeepSea, half(smoothstep(0.08, 0.42, glow)));
+    color = mix(color, cDynamic, half(smoothstep(0.42, 1.20, glow)));
 
-    half3 abyss =
-        half3(
-            0.001,
-            0.002,
-            0.004
-        );
+    color = half3(1.0) - exp(-color * 1.35);
 
-    half3 filmColor =
-        half3(
-            0.008,
-            0.022,
-            0.030
-        )
-        +
-        half3(
-            0.004,
-            0.012,
-            0.018
-        )
-        *
-        sin(
-            sheen * 6.28318 + t
-        );
-
-    half3 col =
-        abyss +
-        filmColor;
-
-    // 非常轻的压缩
-    col =
-        half3(1.0) -
-        exp(-col * 1.15);
-
-    return half4(
-        clamp(col, 0.0, 1.0),
-        1.0
-    );
+    return half4(clamp(color, 0.0, 1.0), 1.0);
 }
 """
 }

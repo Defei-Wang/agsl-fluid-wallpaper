@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGSL Fluid Wallpaper - Engine Showcase</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: #05040a;
+            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+        header {
+            text-align: center;
+            padding: 36px 20px 20px;
+        }
+        h1 {
+            font-size: 2.2rem;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #60a5fa 0%, #c084fc 60%, #f472b6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        p.subtitle {
+            color: #94a3b8;
+            font-size: 1rem;
+            max-width: 680px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+        .main-layout {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            padding: 10px 20px 40px;
+            max-width: 1200px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        @media (min-width: 960px) {
+            .main-layout {
+                flex-direction: row;
+                align-items: flex-start;
+                justify-content: center;
+                gap: 40px;
+            }
+        }
+        .canvas-card {
+            width: 100%;
+            max-width: 420px;
+            height: 720px;
+            background: #000;
+            border-radius: 32px;
+            border: 3px solid #1e293b;
+            box-shadow: 0 20px 50px -10px rgba(96, 165, 250, 0.2);
+            position: relative;
+            overflow: hidden;
+            flex-shrink: 0;
+            margin-bottom: 24px;
+        }
+        .canvas-card:fullscreen {
+            max-width: 100vw;
+            height: 100vh;
+            border-radius: 0;
+            border: none;
+        }
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+            cursor: crosshair;
+        }
+        .fullscreen-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #e2e8f0;
+            padding: 8px 14px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            backdrop-filter: blur(8px);
+            transition: all 0.2s;
+            z-index: 10;
+        }
+        .fullscreen-btn:hover {
+            background: rgba(30, 41, 59, 0.95);
+            border-color: #60a5fa;
+        }
+        .overlay-hint {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(8px);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            pointer-events: none;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            white-space: nowrap;
+        }
+        .panel {
+            flex: 1;
+            max-width: 580px;
+            width: 100%;
+        }
+        .panel h2 {
+            font-size: 1.3rem;
+            margin-bottom: 14px;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 12px;
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+        .nav-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .version-btn {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid #334155;
+            color: #cbd5e1;
+            padding: 14px 18px;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            text-align: left;
+            display: block;
+            width: 100%;
+        }
+        .version-btn:hover {
+            background: rgba(51, 65, 85, 0.8);
+            border-color: #60a5fa;
+            transform: translateY(-2px);
+        }
+        .version-btn.active {
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.25) 0%, rgba(147, 51, 234, 0.25) 100%);
+            border-color: #818cf8;
+            box-shadow: 0 4px 20px -2px rgba(99, 102, 241, 0.3);
+        }
+        .version-btn-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .version-title {
+            font-weight: 700;
+            font-size: 0.98rem;
+            color: #f1f5f9;
+        }
+        .version-tag {
+            font-size: 0.72rem;
+            font-family: monospace;
+            background: #0f172a;
+            padding: 2px 6px;
+            border-radius: 6px;
+            color: #94a3b8;
+        }
+        .version-desc {
+            font-size: 0.82rem;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+        .detail-box {
+            background: #0b0f19;
+            border: 1px solid #1e293b;
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 20px;
+        }
+        .detail-box h3 {
+            font-size: 0.95rem;
+            color: #38bdf8;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .detail-box p {
+            font-size: 0.88rem;
+            color: #cbd5e1;
+            line-height: 1.5;
+            margin-bottom: 12px;
+        }
+        .tech-list {
+            list-style: none;
+            font-size: 0.82rem;
+            color: #94a3b8;
+        }
+        .tech-list li {
+            position: relative;
+            padding-left: 16px;
+            margin-bottom: 6px;
+        }
+        .tech-list li::before {
+            content: "•";
+            position: absolute;
+            left: 4px;
+            color: #818cf8;
+            font-weight: bold;
+        }
+        .actions {
+            display: flex;
+            gap: 12px;
+        }
+        .btn-download {
+            flex: 1;
+            background: #2563eb;
+            color: #fff;
+            padding: 12px 18px;
+            border-radius: 10px;
+            text-align: center;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        .btn-download:hover { background: #1d4ed8; }
+        .btn-github {
+            background: #1e293b;
+            color: #cbd5e1;
+            padding: 12px 18px;
+            border-radius: 10px;
+            text-align: center;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: background 0.2s, color 0.2s;
+            border: 1px solid #334155;
+        }
+        .btn-github:hover { background: #334155; color: #fff; }
+        footer {
+            text-align: center;
+            padding: 24px;
+            color: #64748b;
+            font-size: 0.82rem;
+            border-top: 1px solid #1e293b;
+            margin-top: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>AGSL Fluid Wallpaper</h1>
+        <p class="subtitle">Interactive procedural live wallpaper engine gallery for Android 13+ (API 33+). Real-time WebGL simulation running alongside APK release artifacts.</p>
+    </header>
+
+    <div class="main-layout">
+        <div class="canvas-card" id="cardContainer">
+            <button class="fullscreen-btn" id="fsBtn" onclick="toggleFullscreen()">Fullscreen</button>
+            <canvas id="renderCanvas"></canvas>
+            <div class="overlay-hint" id="statusHint">Touch or Drag to Emit Waves</div>
+        </div>
+
+        <div class="panel">
+            <h2>
+                <span>Model Architecture</span>
+                <span class="badge" id="versionBadge">v4.0.0 Active</span>
+            </h2>
+
+            <div class="nav-grid" id="buttonContainer"></div>
+
+            <div class="detail-box">
+                <h3 id="infoTitle">Specifications</h3>
+                <p id="infoDesc"></p>
+                <ul class="tech-list" id="infoList"></ul>
+            </div>
+
+            <div class="actions">
+                <a id="apkDownloadBtn" href="#" class="btn-download" target="_blank">Download APK</a>
+                <a href="https://github.com/Defei-Wang/agsl-fluid-wallpaper" class="btn-github" target="_blank">GitHub Repository</a>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <p>AGSL Fluid Wallpaper Engine &bull; Pure Procedural Fragment Math &bull; MIT License</p>
+    </footer>
+
+    <script>
+        const REPO_BASE = "https://github.com/Defei-Wang/agsl-fluid-wallpaper";
+
+        const VERSION_DATA = [
+            {
+                id: "v1.0.0",
+                title: "v1.0 Ambient Center",
+                subtitle: "Autonomous Polar Fluid Dynamics",
+                desc: "Autonomous non-linear fluid dynamics originating from the display center without touch interaction. Utilizes polar folding harmonics and inverse-distance glowing cores.",
+                tech: [
+                    "Pure procedural autonomous generation (Touch = 0)",
+                    "Polar coordinate non-linear wave folding",
+                    "Inverse Cauchy core with crystalline micro-noise"
+                ],
+                releaseTag: "v1.0.0",
+                apkFile: "agsl-fluid-v1.0.0.apk",
+                fragmentShader: `
+                    precision highp float;
+                    uniform vec2 uResolution;
+                    uniform float uTime;
+                    float hash21(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+                    void main() {
+                        vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
+                        float r = length(uv) * 2.2;
+                        float a = atan(uv.y, uv.x);
+                        float fold = sin(a * 2.0);
+                        float wave1 = sin(r * 4.0 - uTime * 1.5 + fold * 3.0);
+                        float wave2 = cos(a * 3.0 + sin(r * 8.0 - uTime * 0.8));
+                        float q = 0.85 + 0.35 * sin(wave1 + wave2 + sin(r * 12.0 - uTime * 0.5));
+                        float dist = abs(r - q) + 0.04 * abs(sin(a * 32.0 + r * 20.0 - uTime * 2.0));
+                        float intensity = 0.0062 / (dist + 0.0014) * smoothstep(2.6, 0.1, r);
+                        vec3 col = clamp(vec3(0.95, 0.82, 1.35) * intensity, 0.0, 1.0);
+                        float ambient = smoothstep(0.98, 1.0, hash21(uv + uTime * 0.05)) * 0.04;
+                        col += vec3(ambient * 0.5, ambient * 0.6, ambient + 0.02);
+                        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+                    }
+                `
+            },
+            {
+                id: "v2.0.0",
+                title: "v2.0 Discrete Point-Source",
+                subtitle: "Interactive Multi-Touch Radial Blossoms",
+                desc: "Discrete point-source model featuring a velocity-coupled glowing cursor at the touch point and independent multi-lobed water blossoms.",
+                tech: [
+                    "Dynamic velocity-coupled glowing cursor with inverse-scaling",
+                    "Independent multi-lobed water blossoms per touch event",
+                    "Projective max-blending to prevent overexposure"
+                ],
+                releaseTag: "v2.0.0",
+                apkFile: "agsl-fluid-v2.0.0.apk",
+                fragmentShader: `
+                    precision highp float;
+                    uniform vec2 uResolution;
+                    uniform float uTime;
+                    uniform vec4 uCursor;
+                    uniform vec4 uR0, uR1, uR2, uR3, uR4, uR5, uR6, uR7;
+                    float hash21(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+                    vec3 evalRipple(vec2 uv, vec4 r) {
+                        float age = max(0.0, uTime - r.z);
+                        if (r.w < 0.5 || age > 3.5) return vec3(0.0);
+                        float seed = fract(r.z * 13.513);
+                        float lobes = floor(2.0 + fract(seed * 41.2) * 3.0);
+                        float speed = 0.85 + fract(seed * 17.5) * 0.35;
+                        vec3 rippleColor = mix(vec3(0.3, 0.85, 1.5), vec3(1.1, 0.45, 1.35), fract(seed * 93.1));
+                        vec2 delta = uv - r.xy;
+                        float dist = length(delta) * 2.2;
+                        float a = atan(delta.y, delta.x) + seed * 6.283;
+                        float fold = sin(a * lobes);
+                        float w0 = sin(dist * 4.0 - age * 2.2 + fold * 2.5);
+                        float q0 = age * speed + 0.16 * sin(w0 + cos(a * 3.0 + dist * 6.0 - age * 1.2));
+                        float noise = 0.06 * fract(hash21(uv * 160.0) + age);
+                        float d0 = abs(dist - q0) + noise;
+                        float intensity = 0.0042 / (d0 + 0.0016);
+                        float q1 = max(0.0, age - 0.22) * speed + 0.14 * sin(w0);
+                        intensity += (0.0022 / (abs(dist - q1) + noise + 0.0016)) * step(0.22, age);
+                        return rippleColor * intensity * smoothstep(3.5, 2.0, age) * smoothstep(0.0, 0.1, age);
+                    }
+
+                    void main() {
+                        vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
+                        vec3 col = vec3(0.0);
+                        col = max(col, evalRipple(uv, uR0));
+                        col = max(col, evalRipple(uv, uR1));
+                        col = max(col, evalRipple(uv, uR2));
+                        col = max(col, evalRipple(uv, uR3));
+                        col = max(col, evalRipple(uv, uR4));
+                        col = max(col, evalRipple(uv, uR5));
+                        col = max(col, evalRipple(uv, uR6));
+                        col = max(col, evalRipple(uv, uR7));
+
+                        float cDist = length(uv - uCursor.xy);
+                        float cursor = exp(-cDist * mix(45.0, 110.0, uCursor.z)) * 0.95 + exp(-cDist * 18.0) * 0.35;
+                        col = max(col, mix(vec3(0.3, 0.85, 1.5), vec3(0.9, 0.4, 1.4), uCursor.z) * cursor * uCursor.w);
+
+                        float ambient = smoothstep(0.98, 1.0, hash21(uv + uTime * 0.05)) * 0.04;
+                        col += vec3(ambient * 0.5, ambient * 0.6, ambient + 0.02);
+                        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+                    }
+                `
+            },
+            {
+                id: "v3.0.0",
+                title: "v3.0 Causal Segment Wake",
+                subtitle: "Kelvin Wake Wave Engine",
+                desc: "Models motion strokes as continuous 1D geometric line segments. Wavefronts propagate from radius zero along the stroke axis via temporal causality.",
+                tech: [
+                    "Causal 1D segment distance field (t_touch = mix(tA, tB, h))",
+                    "Hardware-synchronized IIR touch smoothing",
+                    "3.5-second complete physical lifecycle expansion"
+                ],
+                releaseTag: "v3.0.0",
+                apkFile: "agsl-fluid-v3.0.0.apk",
+                fragmentShader: `
+                    precision highp float;
+                    uniform vec2 uResolution;
+                    uniform float uTime;
+                    uniform vec4 uSegA0, uSegA1, uSegA2, uSegA3, uSegA4, uSegA5, uSegA6, uSegA7;
+                    uniform vec4 uSegT0, uSegT1, uSegT2, uSegT3, uSegT4, uSegT5, uSegT6, uSegT7;
+                    float hash21(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+                    vec3 evalSeg(vec2 uv, vec4 sA, vec4 sT) {
+                        if (sT.z < 0.5) return vec3(0.0);
+                        vec2 a = sA.xy; vec2 b = sA.zw;
+                        vec2 ba = b - a; vec2 pa = uv - a;
+                        float l2 = max(dot(ba, ba), 1e-8);
+                        float h = clamp(dot(pa, ba) / l2, 0.0, 1.0);
+                        float rawDist = length(pa - ba * h);
+                        float age = uTime - mix(sT.x, sT.y, h);
+                        if (age > 3.5 || age <= 0.0) return vec3(0.0);
+
+                        float speed = 0.70;
+                        float R = age * speed;
+                        float ang = atan(uv.y - 0.5 * (a.y + b.y), uv.x - 0.5 * (a.x + b.x));
+                        float fold = sin(ang * 2.0);
+                        float wave1 = sin(rawDist * 8.0 - age * 3.0 + fold * 2.5);
+                        float wave2 = cos(ang * 3.0 + sin(rawDist * 16.0 - age * 1.5));
+                        float macroFold = clamp(R * 0.28, 0.0, 0.15) * sin(wave1 + wave2 + sin(rawDist * 22.0 - age * 1.2));
+                        float targetR = R + macroFold;
+                        float intensity = 0.0055 / (abs(rawDist - targetR) + 0.0032);
+                        float R1 = max(0.0, R - 0.16);
+                        if (R1 > 0.0) intensity += (0.0020 / (abs(rawDist - (R1 + macroFold * 0.7)) + 0.0032)) * step(0.16 / speed, age);
+
+                        float frontMask = smoothstep(0.03, -0.01, rawDist - targetR);
+                        float spatialDecay = 1.0 / sqrt(max(0.04, R * 2.0 + 0.08));
+                        float temporalFade = smoothstep(3.5, 2.0, age) * smoothstep(0.0, 0.06, age);
+                        vec3 col = mix(vec3(0.25, 0.85, 1.55), vec3(1.15, 0.40, 1.35), fract(sT.w * 17.713));
+                        return col * intensity * frontMask * spatialDecay * temporalFade;
+                    }
+
+                    void main() {
+                        vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
+                        vec3 col = vec3(0.0);
+                        col = max(col, evalSeg(uv, uSegA0, uSegT0));
+                        col = max(col, evalSeg(uv, uSegA1, uSegT1));
+                        col = max(col, evalSeg(uv, uSegA2, uSegT2));
+                        col = max(col, evalSeg(uv, uSegA3, uSegT3));
+                        col = max(col, evalSeg(uv, uSegA4, uSegT4));
+                        col = max(col, evalSeg(uv, uSegA5, uSegT5));
+                        col = max(col, evalSeg(uv, uSegA6, uSegT6));
+                        col = max(col, evalSeg(uv, uSegA7, uSegT7));
+
+                        float ambient = smoothstep(0.98, 1.0, hash21(uv + uTime * 0.05)) * 0.04;
+                        col += vec3(ambient * 0.5, ambient * 0.6, ambient + 0.02);
+                        gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+                    }
+                `
+            },
+            {
+                id: "v4.0.0",
+                title: "v4.0 Organic Fluid Wake",
+                subtitle: "Additive Multi-Scale Envelope (Latest)",
+                desc: "Eliminates Voronoi tearing and stroke-locking. Implements polynomial coordinate folding without center singularities, coupled with dynamic force-driven multi-layer resonance.",
+                tech: [
+                    "Global polynomial spatial fold field (atan-free, singularity-free)",
+                    "Additive manifold integration with exponential tone mapping",
+                    "Dynamic kinetic force excitation (1 to 4 resonant crests)"
+                ],
+                releaseTag: "v4.0.0",
+                apkFile: "agsl-fluid-v4.0.0.apk",
+                fragmentShader: `
+                    precision highp float;
+                    uniform vec2 uResolution;
+                    uniform float uTime;
+                    uniform vec4 uSegA0, uSegA1, uSegA2, uSegA3, uSegA4, uSegA5, uSegA6, uSegA7;
+                    uniform vec4 uSegT0, uSegT1, uSegT2, uSegT3, uSegT4, uSegT5, uSegT6, uSegT7;
+                    float hash21(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+                    vec3 evalOrganic(vec2 uv, vec4 sA, vec4 sT) {
+                        if (sT.z < 0.5) return vec3(0.0);
+                        vec2 a = sA.xy; vec2 b = sA.zw;
+                        vec2 ba = b - a; vec2 pa = uv - a;
+                        float l2 = max(dot(ba, ba), 1e-8);
+                        float h = clamp(dot(pa, ba) / l2, 0.0, 1.0);
+                        float rawDist = length(pa - ba * h);
+                        float age = uTime - mix(sT.x, sT.y, h);
+                        if (age <= 0.0 || age > 4.5) return vec3(0.0);
+
+                        float seed = sT.w;
+                        float seedForce = fract(seed * 7.31);
+                        float speed = 0.55 + 0.30 * seedForce;
+                        float R = age * speed;
+
+                        float fold = sin(uv.x * 5.3 + uv.y * 4.1 + seed * 2.7)
+                                   + cos(uv.x * 3.1 - uv.y * 6.7 + seed * 5.3);
+                        float wave1 = sin(rawDist * 8.0 - age * 3.0 + fold * 2.5);
+                        float wave2 = cos(fold * 3.0 + sin(rawDist * 16.0 - age * 1.5));
+                        float macroFold = clamp(R * 0.28, 0.0, 0.15) * sin(wave1 + wave2 + sin(rawDist * 22.0 - age * 1.2));
+
+                        float targetR = R + macroFold;
+                        float intensity = 0.0080 / (abs(rawDist - targetR) + 0.0025);
+                        float layerCount = 1.0 + floor(seedForce * 3.99);
+
+                        float R1 = max(0.0, R - 0.16);
+                        if (R1 > 0.0) {
+                            intensity += (0.0028 / (abs(rawDist - (R1 + macroFold * 0.7)) + 0.0032))
+                                         * step(0.16 / speed, age) * step(1.5, layerCount);
+                        }
+                        float R2 = max(0.0, R - 0.34);
+                        if (R2 > 0.0) {
+                            intensity += (0.0018 / (abs(rawDist - (R2 + macroFold * 0.5)) + 0.0040))
+                                         * step(0.34 / speed, age) * step(2.5, layerCount);
+                        }
+
+                        float glitter = 0.025 * abs(sin(fold * 12.0 + rawDist * 36.0 - age * 4.0));
+                        float noise = 0.030 * fract(hash21(uv * 180.0 + seed * 13.0) + age);
+                        intensity *= (0.88 + 0.24 * (glitter + noise)) * (1.0 + seedForce * 1.5);
+
+                        float frontMask = smoothstep(0.05, -0.02, rawDist - targetR);
+                        float spatialDecay = 1.0 / sqrt(max(0.04, R * 2.0 + 0.08));
+                        float lifeSpan = 2.5 + 1.5 * seedForce;
+                        float temporalFade = smoothstep(lifeSpan, lifeSpan - 1.5, age) * smoothstep(0.0, 0.06, age);
+
+                        vec3 cA = vec3(0.25, 0.85, 1.55);
+                        vec3 cB = vec3(1.15, 0.40, 1.35);
+                        vec3 cC = vec3(0.85, 1.15, 0.55);
+                        vec3 cD = vec3(1.35, 0.95, 0.35);
+                        vec3 pick = mix(mix(cA, cB, fract(seed * 17.713)), mix(cC, cD, fract(seed * 31.117)), 0.5);
+
+                        return max(pick * intensity * frontMask * spatialDecay * temporalFade, vec3(0.0));
+                    }
+
+                    void main() {
+                        vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
+                        vec3 finalColor = vec3(0.0);
+                        finalColor += evalOrganic(uv, uSegA0, uSegT0);
+                        finalColor += evalOrganic(uv, uSegA1, uSegT1);
+                        finalColor += evalOrganic(uv, uSegA2, uSegT2);
+                        finalColor += evalOrganic(uv, uSegA3, uSegT3);
+                        finalColor += evalOrganic(uv, uSegA4, uSegT4);
+                        finalColor += evalOrganic(uv, uSegA5, uSegT5);
+                        finalColor += evalOrganic(uv, uSegA6, uSegT6);
+                        finalColor += evalOrganic(uv, uSegA7, uSegT7);
+
+                        float ambient = smoothstep(0.98, 1.0, hash21(uv + uTime * 0.05)) * 0.04;
+                        finalColor += vec3(0.015 + ambient * 0.5, 0.015 + ambient * 0.6, 0.035 + ambient);
+                        finalColor = vec3(1.0) - exp(-finalColor * 1.8);
+                        gl_FragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);
+                    }
+                `
+            }
+        ];
+
+        const canvas = document.getElementById("renderCanvas");
+        const gl = canvas.getContext("webgl");
+        let currentProgram = null;
+        let activeVersionIndex = VERSION_DATA.length - 1;
+        const startTime = Date.now();
+
+        // v2 state
+        const MAX_RIPPLES = 8;
+        const ripples = Array.from({ length: MAX_RIPPLES }, () => [0, 0, -100, 0]);
+        let rippleIdx = 0;
+        let cursorData = [0, 0, 0, 0];
+
+        // v3 & v4 state (8 segments ring buffer)
+        const MAX_SEGS = 8;
+        const segCoords = Array.from({ length: MAX_SEGS }, () => [0, 0, 0, 0]);
+        const segTimes = Array.from({ length: MAX_SEGS }, () => [-100, -100, 0, 0]);
+        let activeSegSlot = 0;
+
+        let isPointerDown = false;
+        let lastPt = null;
+        let lastPtTime = 0;
+        let currentStrokeSeed = 0;
+
+        function toggleFullscreen() {
+            const card = document.getElementById("cardContainer");
+            if (!document.fullscreenElement) {
+                card.requestFullscreen().catch(err => alert(err.message));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        document.addEventListener("fullscreenchange", () => {
+            const btn = document.getElementById("fsBtn");
+            btn.innerText = document.fullscreenElement ? "Exit Fullscreen" : "Fullscreen";
+        });
+
+        function initUI() {
+            const container = document.getElementById("buttonContainer");
+            container.innerHTML = "";
+            VERSION_DATA.forEach((v, index) => {
+                const btn = document.createElement("button");
+                btn.className = `version-btn ${index === activeVersionIndex ? "active" : ""}`;
+                btn.onclick = () => selectVersion(index);
+                btn.innerHTML = `
+                    <div class="version-btn-header">
+                        <span class="version-title">${v.title}</span>
+                        <span class="version-tag">${v.id}</span>
+                    </div>
+                    <div class="version-desc">${v.subtitle}</div>
+                `;
+                container.appendChild(btn);
+            });
+            updateDetails();
+        }
+
+        function selectVersion(index) {
+            activeVersionIndex = index;
+            document.querySelectorAll(".version-btn").forEach((btn, idx) => {
+                btn.classList.toggle("active", idx === index);
+            });
+            updateDetails();
+            compileCurrentShader();
+        }
+
+        function updateDetails() {
+            const v = VERSION_DATA[activeVersionIndex];
+            document.getElementById("versionBadge").innerText = `${v.id} Active`;
+            document.getElementById("infoTitle").innerText = `${v.title} Specifications`;
+            document.getElementById("infoDesc").innerText = v.desc;
+
+            const list = document.getElementById("infoList");
+            list.innerHTML = "";
+            v.tech.forEach(item => {
+                const li = document.createElement("li");
+                li.innerText = item;
+                list.appendChild(li);
+            });
+
+            const apkBtn = document.getElementById("apkDownloadBtn");
+            apkBtn.href = `${REPO_BASE}/releases/download/${v.releaseTag}/${v.apkFile}`;
+            apkBtn.innerText = `Download ${v.id} APK`;
+
+            const hint = document.getElementById("statusHint");
+            hint.innerText = (activeVersionIndex === 0) ? "Autonomous Ambient Fluid (Touch Disabled)" : "Touch or Drag to Emit Waves";
+        }
+
+        function createShader(gl, type, source) {
+            const s = gl.createShader(type);
+            gl.shaderSource(s, source);
+            gl.compileShader(s);
+            if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+                console.error("Shader error:", gl.getShaderInfoLog(s));
+                gl.deleteShader(s);
+                return null;
+            }
+            return s;
+        }
+
+        const vsSource = `
+            attribute vec2 aPosition;
+            void main() { gl_Position = vec4(aPosition, 0.0, 1.0); }
+        `;
+
+        function compileCurrentShader() {
+            const v = VERSION_DATA[activeVersionIndex];
+            const vs = createShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fs = createShader(gl, gl.FRAGMENT_SHADER, v.fragmentShader);
+            if (!vs || !fs) return;
+            const program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error("Program link error:", gl.getProgramInfoLog(program));
+                return;
+            }
+            currentProgram = program;
+        }
+
+        const quadBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            -1, -1, 1, -1, -1, 1,
+            -1,  1, 1, -1,  1, 1
+        ]), gl.STATIC_DRAW);
+
+        function getNormCoord(e) {
+            const rect = canvas.getBoundingClientRect();
+            const minDim = Math.min(rect.width, rect.height);
+            return [
+                (e.clientX - rect.left - 0.5 * rect.width) / minDim,
+                ((rect.height - (e.clientY - rect.top)) - 0.5 * rect.height) / minDim
+            ];
+        }
+
+        canvas.addEventListener("pointerdown", e => {
+            isPointerDown = true;
+            const [nx, ny] = getNormCoord(e);
+            const now = (Date.now() - startTime) / 1000.0;
+            lastPt = [nx, ny];
+            lastPtTime = now;
+            currentStrokeSeed = now * 0.173 + Math.random() * 3.77;
+
+            if (activeVersionIndex === 1) {
+                ripples[rippleIdx] = [nx, ny, now, 1.0];
+                rippleIdx = (rippleIdx + 1) % MAX_RIPPLES;
+                cursorData = [nx, ny, 0.0, 1.0];
+            } else if (activeVersionIndex >= 2) {
+                activeSegSlot = (activeSegSlot + 1) % MAX_SEGS;
+                segCoords[activeSegSlot] = [nx, ny, nx, ny];
+                segTimes[activeSegSlot] = [now, now, 1.0, currentStrokeSeed];
+            }
+        });
+
+        window.addEventListener("pointermove", e => {
+            if (!isPointerDown) return;
+            const [nx, ny] = getNormCoord(e);
+            const now = (Date.now() - startTime) / 1000.0;
+            const dx = nx - lastPt[0];
+            const dy = ny - lastPt[1];
+            const dist = Math.hypot(dx, dy);
+
+            if (activeVersionIndex === 1) {
+                cursorData = [nx, ny, Math.min(1.0, dist * 10.0), 1.0];
+                if (dist >= 0.08 && (now - lastPtTime) >= 0.22) {
+                    ripples[rippleIdx] = [nx, ny, now, 1.0];
+                    rippleIdx = (rippleIdx + 1) % MAX_RIPPLES;
+                    lastPt = [nx, ny];
+                    lastPtTime = now;
+                }
+            } else if (activeVersionIndex >= 2) {
+                segCoords[activeSegSlot][2] = nx;
+                segCoords[activeSegSlot][3] = ny;
+                segTimes[activeSegSlot][1] = now;
+
+                if (dist >= 0.045 || (now - lastPtTime) >= 0.12) {
+                    activeSegSlot = (activeSegSlot + 1) % MAX_SEGS;
+                    segCoords[activeSegSlot] = [nx, ny, nx, ny];
+                    segTimes[activeSegSlot] = [now, now, 1.0, currentStrokeSeed];
+                    lastPt = [nx, ny];
+                    lastPtTime = now;
+                }
+            }
+        });
+
+        window.addEventListener("pointerup", () => {
+            isPointerDown = false;
+            cursorData[3] = 0.0;
+            lastPt = null;
+        });
+
+        function render() {
+            if (!currentProgram) return;
+
+            const dpr = window.devicePixelRatio || 1;
+            const displayW = Math.floor(canvas.clientWidth * dpr);
+            const displayH = Math.floor(canvas.clientHeight * dpr);
+            if (canvas.width !== displayW || canvas.height !== displayH) {
+                canvas.width = displayW;
+                canvas.height = displayH;
+            }
+            gl.viewport(0, 0, canvas.width, canvas.height);
+
+            gl.useProgram(currentProgram);
+
+            const posLoc = gl.getAttribLocation(currentProgram, "aPosition");
+            gl.enableVertexAttribArray(posLoc);
+            gl.bindBuffer(gl.ARRAY_BUFFER, quadBuffer);
+            gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+            const now = (Date.now() - startTime) / 1000.0;
+
+            const uRes = gl.getUniformLocation(currentProgram, "uResolution");
+            if (uRes) gl.uniform2f(uRes, canvas.width, canvas.height);
+
+            const uTime = gl.getUniformLocation(currentProgram, "uTime");
+            if (uTime) gl.uniform1f(uTime, now);
+
+            if (activeVersionIndex === 1) {
+                const uCur = gl.getUniformLocation(currentProgram, "uCursor");
+                if (uCur) gl.uniform4fv(uCur, cursorData);
+                for (let i = 0; i < MAX_RIPPLES; i++) {
+                    const uR = gl.getUniformLocation(currentProgram, `uR${i}`);
+                    if (uR) gl.uniform4fv(uR, ripples[i]);
+                }
+            } else if (activeVersionIndex >= 2) {
+                for (let i = 0; i < MAX_SEGS; i++) {
+                    const uA = gl.getUniformLocation(currentProgram, `uSegA${i}`);
+                    const uT = gl.getUniformLocation(currentProgram, `uSegT${i}`);
+                    if (uA) gl.uniform4fv(uA, segCoords[i]);
+                    if (uT) gl.uniform4fv(uT, segTimes[i]);
+                }
+            }
+
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+            requestAnimationFrame(render);
+        }
+
+        initUI();
+        compileCurrentShader();
+        render();
+    </script>
+</body>
+</html>
