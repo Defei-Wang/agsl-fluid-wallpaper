@@ -1,0 +1,1960 @@
+﻿package com.agsl.wallpaper
+
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.view.MotionEvent
+import kotlin.math.*
+import kotlin.random.Random
+
+
+// ============================================================
+// 基础单体
+// ============================================================
+
+abstract class AbyssalOrganism(
+    var x: Float,
+    var y: Float,
+
+    val scaleFactor: Float,
+
+    val speciesId: Int,
+
+    val rgb: IntArray,
+
+    var driftVx: Float,
+    var driftVy: Float,
+
+    var t: Float
+) {
+
+    companion object {
+        const val POINT_COUNT = 2600
+    }
+
+    val pts =
+        FloatArray(
+            POINT_COUNT * 2
+        )
+
+    var isOffscreen = false
+
+    // --------------------------------------------------------
+    // 每只自己的点击加速
+    // --------------------------------------------------------
+
+    var startlePulse = 0f
+
+    // --------------------------------------------------------
+    // 每只自己的年龄 / 漂移相位
+    // --------------------------------------------------------
+
+    private var age =
+        Random.nextFloat() * 100f
+
+    private val driftPhase =
+        Random.nextFloat() * 100f
+
+    private val driftStrength =
+        Random.nextFloat() * 0.45f + 0.65f
+
+    protected val paint =
+        Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            strokeCap =
+                Paint.Cap.ROUND
+        }
+
+
+    abstract fun evaluateShape(
+        currentScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int
+
+
+    // ========================================================
+    // 命中检测
+    // ========================================================
+
+    open fun hitRadius(
+        baseScale: Float
+    ): Float {
+
+        return (
+            118f *
+            scaleFactor *
+            baseScale
+        ).coerceAtLeast(
+            38f
+        )
+    }
+
+
+    fun checkAndApplyImpulse(
+        tx: Float,
+        ty: Float,
+        baseScale: Float
+    ): Boolean {
+
+        val dx =
+            tx - x
+
+        val dy =
+            ty - y
+
+        val r =
+            hitRadius(baseScale)
+
+        val dist2 =
+            dx * dx +
+            dy * dy
+
+        if (
+            dist2 <=
+            r * r
+        ) {
+
+            // 只修改这一只
+            startlePulse =
+                (
+                    startlePulse +
+                    1.35f
+                ).coerceAtMost(
+                    2.25f
+                )
+
+            return true
+        }
+
+        return false
+    }
+
+
+    // ========================================================
+    // 旧版稳定运动机制
+    //
+    // 这里故意不设置“屏幕内部墙”
+    //
+    // 水母允许自然游出屏幕。
+    // 只有整个形体离开足够大的外围后才回收。
+    // ========================================================
+
+    fun update(
+        w: Float,
+        h: Float,
+        baseScale: Float
+    ) {
+
+        age +=
+            0.016f
+
+
+        // ----------------------------------------------------
+        // 非常轻微的自然漂移
+        // ----------------------------------------------------
+
+        val wanderX =
+            sin(
+                age * 0.37f +
+                driftPhase
+            ) *
+            0.0018f *
+            driftStrength
+
+        val wanderY =
+            cos(
+                age * 0.31f +
+                driftPhase * 0.7f
+            ) *
+            0.0016f *
+            driftStrength
+
+
+        driftVx +=
+            wanderX
+
+        driftVy +=
+            wanderY
+
+
+        // ----------------------------------------------------
+        // 点击后只有当前对象加速
+        // ----------------------------------------------------
+
+        val motionBoost =
+            1f +
+            startlePulse *
+            0.72f
+
+
+        x +=
+            driftVx *
+            motionBoost
+
+        y +=
+            driftVy *
+            motionBoost
+
+
+        // ----------------------------------------------------
+        // 非常保守的速度限制
+        // ----------------------------------------------------
+
+        val maxSpeed =
+            0.42f +
+            (
+                1f -
+                scaleFactor
+            ) *
+            0.08f
+
+        driftVx =
+            driftVx.coerceIn(
+                -maxSpeed,
+                maxSpeed
+            )
+
+        driftVy =
+            driftVy.coerceIn(
+                -maxSpeed,
+                maxSpeed
+            )
+
+
+        // ----------------------------------------------------
+        // 自己的动画时间
+        // ----------------------------------------------------
+
+        t +=
+            0.010f +
+            startlePulse *
+            0.004f
+
+
+        // ----------------------------------------------------
+        // 自己的加速衰减
+        // ----------------------------------------------------
+
+        startlePulse *=
+            0.932f
+
+
+        // ====================================================
+        // 关键：
+        //
+        // 不设置任何“墙”
+        //
+        // 不会出现：
+        //
+        //   if (x < minX) x = minX
+        //   if (x > maxX) x = maxX
+        //
+        // 所以不会被卡在某条隐形边界上。
+        // ====================================================
+
+        val margin =
+            (
+                260f *
+                scaleFactor *
+                baseScale
+            ).coerceAtLeast(
+                170f
+            )
+
+
+        if (
+            !x.isFinite() ||
+            !y.isFinite() ||
+            !driftVx.isFinite() ||
+            !driftVy.isFinite() ||
+            !t.isFinite()
+        ) {
+
+            isOffscreen = true
+
+            return
+        }
+
+
+        // ----------------------------------------------------
+        // 只有整个生物真正离开外围才删除
+        // ----------------------------------------------------
+
+        isOffscreen =
+            y <
+                -margin ||
+            x <
+                -margin ||
+            x >
+                w + margin ||
+            y >
+                h + margin * 1.35f
+    }
+
+
+    // ========================================================
+    // 绘制
+    // ========================================================
+
+    fun draw(
+        canvas: Canvas,
+        baseScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ) {
+
+        val currentScale =
+            baseScale *
+            scaleFactor
+
+
+        // 旧版细点画质感
+        paint.strokeWidth =
+            (
+                1.65f +
+                0.42f *
+                scaleFactor
+            )
+
+
+        // 点击时自己变亮
+        val alpha =
+            (
+                72f +
+                startlePulse *
+                72f
+            )
+                .coerceIn(
+                    55f,
+                    185f
+                )
+                .toInt()
+
+
+        paint.color =
+            Color.argb(
+                alpha,
+                rgb[0],
+                rgb[1],
+                rgb[2]
+            )
+
+
+        val validCount =
+            evaluateShape(
+                currentScale,
+                touchX,
+                touchY,
+                touchDown
+            )
+
+
+        if (
+            validCount <= 0
+        ) {
+            return
+        }
+
+
+        canvas.drawPoints(
+            pts,
+            0,
+            min(
+                validCount,
+                POINT_COUNT
+            ) * 2,
+            paint
+        )
+    }
+
+
+    // ========================================================
+    // 点击产生局部水波
+    //
+    // 只传给被点击对象。
+    // ========================================================
+
+    protected fun displaceByWater(
+        px: Float,
+        py: Float,
+        tx: Float,
+        ty: Float,
+        touchDown: Boolean
+    ): Pair<Float, Float> {
+
+        if (!touchDown) {
+            return px to py
+        }
+
+
+        val dx =
+            px - tx
+
+        val dy =
+            py - ty
+
+        val d2 =
+            dx * dx +
+            dy * dy
+
+
+        if (
+            d2 <
+            24000f &&
+            d2 >
+            1f
+        ) {
+
+            val d =
+                sqrt(d2)
+
+            val push =
+                (
+                    1f -
+                    d / 155f
+                ).coerceAtLeast(
+                    0f
+                ) *
+                18f
+
+
+            return (
+                px +
+                dx / d *
+                push
+            ) to (
+                py +
+                dy / d *
+                push
+            )
+        }
+
+
+        return px to py
+    }
+}
+
+
+// ============================================================
+// 物种 0
+// Classic
+//
+// 原始公式保留。
+// ============================================================
+
+class ClassicJellyfish(
+    x: Float,
+    y: Float,
+    sc: Float,
+    rgb: IntArray,
+    vx: Float,
+    vy: Float,
+    tInit: Float
+) :
+    AbyssalOrganism(
+        x,
+        y,
+        sc,
+        0,
+        rgb,
+        vx,
+        vy,
+        tInit
+    ) {
+
+    override fun evaluateShape(
+        currentScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr = 0
+
+        val step =
+            20000f /
+            POINT_COUNT
+
+
+        for (
+            p in POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p *
+                step
+
+            val yVal =
+                i /
+                99f
+
+            val k =
+                9f *
+                cos(
+                    yVal * 2f
+                )
+
+            val e =
+                yVal /
+                8f -
+                12f
+
+            val d =
+                (
+                    k * k +
+                    e * e
+                ) /
+                79f +
+                1f
+
+            val q =
+                79f -
+                e *
+                sin(k) +
+                (
+                    k / d
+                ) *
+                (
+                    8f +
+                    4f *
+                    sin(
+                        sin(
+                            d * d +
+                            e / 9f -
+                            t
+                        )
+                    )
+                )
+
+            val c =
+                d / 2f -
+                cos(
+                    d * 2f
+                ) / 5f -
+                t / 16f
+
+
+            val rx =
+                q *
+                sin(c) *
+                currentScale
+
+            val ry =
+                (
+                    q +
+                    40f
+                ) *
+                cos(c) *
+                currentScale
+
+
+            val point =
+                displaceByWater(
+                    x + rx,
+                    y + ry,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+
+
+            pts[ptr++] =
+                point.first
+
+            pts[ptr++] =
+                point.second
+        }
+
+
+        return POINT_COUNT
+    }
+}
+
+
+// ============================================================
+// 物种 1
+// Crown
+// ============================================================
+
+class CrownMedusa(
+    x: Float,
+    y: Float,
+    sc: Float,
+    rgb: IntArray,
+    vx: Float,
+    vy: Float,
+    tInit: Float
+) :
+    AbyssalOrganism(
+        x,
+        y,
+        sc,
+        1,
+        rgb,
+        vx,
+        vy,
+        tInit
+    ) {
+
+    override fun evaluateShape(
+        currentScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr = 0
+
+        val step =
+            20000f /
+            POINT_COUNT
+
+
+        for (
+            p in POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p *
+                step
+
+            val yVal =
+                i /
+                110f
+
+            val k =
+                8f *
+                cos(
+                    if (
+                        yVal < 59f
+                    )
+                        (i.toInt() % 9).toFloat()
+                    else
+                        i * 4f
+                )
+
+            val e =
+                yVal /
+                7f -
+                16f
+
+            val d =
+                (
+                    k * k +
+                    e * e
+                ) /
+                89f +
+                1.1f
+
+            val q =
+                k / d * 3f -
+                e *
+                sin(k) +
+                (
+                    k /
+                    (d * 3f)
+                ) *
+                (
+                    9f -
+                    d *
+                    4f *
+                    sin(
+                        d * d -
+                        t +
+                        sin(e) / 2f
+                    )
+                ) +
+                70f
+
+            val c =
+                d /
+                1.5f -
+                t / 12f +
+                (i.toInt() % 2) *
+                3f
+
+
+            val rx =
+                q *
+                sin(c) *
+                currentScale
+
+            val ry =
+                (
+                    q *
+                    cos(c) +
+                    e
+                ) *
+                currentScale
+
+
+            val point =
+                displaceByWater(
+                    x + rx,
+                    y + ry,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+
+
+            pts[ptr++] =
+                point.first
+
+            pts[ptr++] =
+                point.second
+        }
+
+
+        return POINT_COUNT
+    }
+}
+
+
+// ============================================================
+// 物种 2
+// Radial
+//
+// 使用之前表现比较稳定的单体公式。
+// ============================================================
+
+class RadialAureliaMedusa(
+    x: Float,
+    y: Float,
+    sc: Float,
+    rgb: IntArray,
+    vx: Float,
+    vy: Float,
+    tInit: Float
+) :
+    AbyssalOrganism(
+        x,
+        y,
+        sc,
+        2,
+        rgb,
+        vx,
+        vy,
+        tInit
+    ) {
+
+    override fun evaluateShape(
+        currentScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr = 0
+
+        val step =
+            20000f /
+            POINT_COUNT
+
+
+        for (
+            p in POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p *
+                step
+
+            val yVal =
+                i /
+                99f
+
+            val k =
+                9f *
+                cos(
+                    yVal * 2f
+                )
+
+            val e =
+                yVal /
+                8f -
+                12f
+
+            val d =
+                (
+                    k * k +
+                    e * e
+                ) /
+                79f +
+                1f
+
+            val q =
+                79f -
+                e *
+                sin(k) +
+                (
+                    k / d
+                ) *
+                (
+                    8f +
+                    4f *
+                    sin(
+                        sin(
+                            d * d +
+                            e / 9f -
+                            t
+                        )
+                    )
+                )
+
+            val c =
+                d /
+                2f -
+                cos(
+                    d * 2f
+                ) / 5f -
+                t / 16f +
+                (i.toInt() % 2) *
+                3f
+
+
+            val rx =
+                q *
+                sin(c) *
+                currentScale
+
+            val ry =
+                (
+                    q +
+                    40f
+                ) *
+                cos(c) *
+                currentScale
+
+
+            val point =
+                displaceByWater(
+                    x + rx,
+                    y + ry,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+
+
+            pts[ptr++] =
+                point.first
+
+            pts[ptr++] =
+                point.second
+        }
+
+
+        return POINT_COUNT
+    }
+}
+
+
+// ============================================================
+// 物种 3
+// Octopus
+//
+// 保留原来的单体章鱼。
+// ============================================================
+
+class AbyssalOctopus(
+    x: Float,
+    y: Float,
+    sc: Float,
+    rgb: IntArray,
+    vx: Float,
+    vy: Float,
+    tInit: Float
+) :
+    AbyssalOrganism(
+        x,
+        y,
+        sc,
+        3,
+        rgb,
+        vx,
+        vy,
+        tInit
+    ) {
+
+    override fun evaluateShape(
+        currentScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr = 0
+
+        val step =
+            10000f /
+            POINT_COUNT
+
+
+        for (
+            p in POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p *
+                step
+
+            val yVal =
+                i /
+                345f
+
+            val k =
+                (
+                    if (
+                        yVal < 11f
+                    ) {
+                        6f +
+                        sin(
+                            (
+                                yVal.toInt() xor 8
+                            ).toFloat()
+                        ) *
+                        6f
+                    }
+                    else {
+                        yVal /
+                        5f +
+                        cos(
+                            yVal / 2f
+                        )
+                    }
+                ) *
+                cos(
+                    i -
+                    t / 4f
+                )
+
+            val e =
+                yVal /
+                7f -
+                13f
+
+            val d =
+                hypot(
+                    k,
+                    e
+                ) +
+                sin(
+                    e / 4f +
+                    t
+                ) /
+                2f
+
+            val safeD =
+                max(
+                    d,
+                    0.05f
+                )
+
+            val q =
+                yVal *
+                (
+                    k /
+                    safeD
+                ) *
+                (
+                    3f +
+                    sin(
+                        d * 2f +
+                        yVal / 2f -
+                        t * 4f
+                    )
+                )
+
+            val c =
+                d /
+                2f +
+                1f -
+                t / 2f
+
+
+            val rx =
+                (
+                    q +
+                    60f *
+                    cos(c)
+                ) *
+                currentScale
+
+            val ry =
+                (
+                    q *
+                    sin(c) +
+                    d * 29f -
+                    110f
+                ) *
+                currentScale
+
+
+            val point =
+                displaceByWater(
+                    x + rx,
+                    y + ry,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+
+
+            pts[ptr++] =
+                point.first
+
+            pts[ptr++] =
+                point.second
+        }
+
+
+        return POINT_COUNT
+    }
+}
+
+
+// ============================================================
+// 物种 4
+// Ribbon
+//
+// 单体第五类。
+// 不使用 FourLobed / StarryPulsar / Cascading。
+// ============================================================
+
+class RibbonMedusa(
+    x: Float,
+    y: Float,
+    sc: Float,
+    rgb: IntArray,
+    vx: Float,
+    vy: Float,
+    tInit: Float
+) :
+    AbyssalOrganism(
+        x,
+        y,
+        sc,
+        4,
+        rgb,
+        vx,
+        vy,
+        tInit
+    ) {
+
+    override fun evaluateShape(
+        currentScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr = 0
+
+        val step =
+            20000f /
+            POINT_COUNT
+
+
+        for (
+            p in POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p *
+                step
+
+            val yVal =
+                i /
+                110f
+
+            val k =
+                7f *
+                cos(
+                    i / 31f
+                ) *
+                cos(
+                    yVal / 22f
+                )
+
+            val e =
+                yVal /
+                7.5f -
+                13f
+
+            val d =
+                (
+                    k * k +
+                    e * e
+                ) /
+                74f +
+                2f
+
+            val q =
+                62f +
+                k *
+                (
+                    3f +
+                    2f *
+                    sin(
+                        d * d -
+                        t * 1.5f
+                    )
+                ) -
+                e *
+                sin(k)
+
+            val c =
+                d /
+                2f -
+                t /
+                17f
+
+
+            val rx =
+                q *
+                sin(c) *
+                currentScale
+
+            val ry =
+                (
+                    q *
+                    cos(c) +
+                    e * 5f
+                ) *
+                currentScale
+
+
+            val point =
+                displaceByWater(
+                    x + rx,
+                    y + ry,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+
+
+            pts[ptr++] =
+                point.first
+
+            pts[ptr++] =
+                point.second
+        }
+
+
+        return POINT_COUNT
+    }
+}
+
+
+// ============================================================
+// Ecology
+// ============================================================
+
+class JellyfishEcology {
+
+    private val activeOrganisms =
+        ArrayList<AbyssalOrganism>()
+
+    private var isInit =
+        false
+
+    private var lastTimeNanos =
+        0L
+
+
+    private var touchX =
+        -1000f
+
+    private var touchY =
+        -1000f
+
+    private var touchDown =
+        false
+
+    private var selectedOrganism:
+        AbyssalOrganism? =
+        null
+
+
+    // --------------------------------------------------------
+    // 5 个单体物种
+    // --------------------------------------------------------
+
+    private val allowedSpecies =
+        intArrayOf(
+            0,
+            1,
+            2,
+            3,
+            4
+        )
+
+
+    private val speciesColors =
+        arrayOf(
+
+            intArrayOf(
+                155,
+                195,
+                225
+            ),
+
+            intArrayOf(
+                160,
+                215,
+                185
+            ),
+
+            intArrayOf(
+                190,
+                180,
+                225
+            ),
+
+            intArrayOf(
+                185,
+                165,
+                215
+            ),
+
+            intArrayOf(
+                150,
+                205,
+                210
+            )
+        )
+
+
+    // ========================================================
+    // 初始化
+    // ========================================================
+
+    fun ensureInit(
+        w: Float,
+        h: Float
+    ) {
+
+        if (
+            isInit ||
+            w <= 0f ||
+            h <= 0f
+        ) {
+            return
+        }
+
+
+        lastTimeNanos =
+            System.nanoTime()
+
+
+        // ----------------------------------------------------
+        // 4 ~ 6 只
+        // ----------------------------------------------------
+
+        val initialCount =
+            Random.nextInt(
+                4,
+                7
+            )
+
+
+        val speciesPool =
+            allowedSpecies
+                .toList()
+                .shuffled()
+
+
+        for (
+            i in 0 until initialCount
+        ) {
+
+            val species =
+                speciesPool[
+                    i %
+                    speciesPool.size
+                ]
+
+
+            val position =
+                generateScatteredPosition(
+                    w,
+                    h
+                )
+
+
+            activeOrganisms.add(
+                instantiateOrganism(
+                    species,
+                    position.first,
+                    position.second
+                )
+            )
+        }
+
+
+        isInit =
+            true
+    }
+
+
+    // ========================================================
+    // 分散位置
+    //
+    // 不从屏幕边缘生成。
+    // 因此不会一出生就是半只。
+    // ========================================================
+
+    private fun generateScatteredPosition(
+        w: Float,
+        h: Float
+    ): Pair<Float, Float> {
+
+        var bestX =
+            w * 0.5f
+
+        var bestY =
+            h * 0.5f
+
+        var bestDistance =
+            -1f
+
+
+        for (
+            attempt in 0 until 18
+        ) {
+
+            val candidateX =
+                Random.nextFloat() *
+                (
+                    w * 0.74f
+                ) +
+                w * 0.13f
+
+            val candidateY =
+                Random.nextFloat() *
+                (
+                    h * 0.70f
+                ) +
+                h * 0.15f
+
+
+            var minDistance =
+                Float.MAX_VALUE
+
+
+            for (
+                org in activeOrganisms
+            ) {
+
+                val distance =
+                    hypot(
+                        candidateX -
+                            org.x,
+
+                        candidateY -
+                            org.y
+                    )
+
+                if (
+                    distance <
+                    minDistance
+                ) {
+
+                    minDistance =
+                        distance
+                }
+            }
+
+
+            if (
+                minDistance >
+                bestDistance
+            ) {
+
+                bestDistance =
+                    minDistance
+
+                bestX =
+                    candidateX
+
+                bestY =
+                    candidateY
+            }
+
+
+            if (
+                minDistance >
+                230f
+            ) {
+                break
+            }
+        }
+
+
+        return bestX to bestY
+    }
+
+
+    // ========================================================
+    // 创建单体
+    // ========================================================
+
+    private fun instantiateOrganism(
+        species: Int,
+        px: Float,
+        py: Float
+    ): AbyssalOrganism {
+
+        // ----------------------------------------------------
+        // 小型明显更多
+        // ----------------------------------------------------
+
+        val r =
+            Random.nextFloat()
+
+
+        val scale =
+            when {
+
+                r < 0.58f ->
+                    Random.nextFloat() *
+                    0.16f +
+                    0.58f
+
+                r < 0.84f ->
+                    Random.nextFloat() *
+                    0.17f +
+                    0.74f
+
+                r < 0.95f ->
+                    Random.nextFloat() *
+                    0.16f +
+                    0.91f
+
+                else ->
+                    Random.nextFloat() *
+                    0.15f +
+                    1.07f
+            }
+
+
+        val rgb =
+            speciesColors[
+                species %
+                speciesColors.size
+            ]
+
+
+        val tInit =
+            Random.nextFloat() *
+            50f
+
+
+        // ----------------------------------------------------
+        // 旧版平缓运动
+        // ----------------------------------------------------
+
+        val vx =
+            (
+                Random.nextFloat() -
+                0.5f
+            ) *
+            0.28f
+
+
+        val vy =
+            -(
+                Random.nextFloat() *
+                0.35f +
+                0.25f
+            )
+
+
+        return when (
+            species
+        ) {
+
+            0 ->
+                ClassicJellyfish(
+                    px,
+                    py,
+                    scale,
+                    rgb,
+                    vx,
+                    vy,
+                    tInit
+                )
+
+            1 ->
+                CrownMedusa(
+                    px,
+                    py,
+                    scale,
+                    rgb,
+                    vx,
+                    vy,
+                    tInit
+                )
+
+            2 ->
+                RadialAureliaMedusa(
+                    px,
+                    py,
+                    scale,
+                    rgb,
+                    vx,
+                    vy,
+                    tInit
+                )
+
+            3 ->
+                AbyssalOctopus(
+                    px,
+                    py,
+                    scale,
+                    rgb,
+                    vx,
+                    vy,
+                    tInit
+                )
+
+            else ->
+                RibbonMedusa(
+                    px,
+                    py,
+                    scale,
+                    rgb,
+                    vx,
+                    vy,
+                    tInit
+                )
+        }
+    }
+
+
+    // ========================================================
+    // 点击
+    //
+    // 关键：
+    // ACTION_DOWN：
+    //   先清除旧对象
+    //   再只找一个新对象
+    //
+    // 点击空白：
+    //   selectedOrganism = null
+    //
+    // 所以不可能出现：
+    //   点 B
+    //   A 还继续被控制
+    // ========================================================
+
+    fun onTouchEvent(
+        e: MotionEvent,
+        w: Float,
+        h: Float
+    ) {
+
+        if (
+            w <= 0f ||
+            h <= 0f
+        ) {
+            return
+        }
+
+
+        val baseScale =
+            min(
+                w,
+                h
+            ) /
+            400f
+
+
+        val idx =
+            e.actionIndex
+
+
+        val tx =
+            e.getX(idx)
+
+        val ty =
+            e.getY(idx)
+
+
+        when (
+            e.actionMasked
+        ) {
+
+            MotionEvent.ACTION_DOWN -> {
+
+                // ------------------------------------------------
+                // 第一件事：彻底解除旧对象
+                // ------------------------------------------------
+
+                selectedOrganism =
+                    null
+
+                touchDown =
+                    false
+
+                touchX =
+                    -1000f
+
+                touchY =
+                    -1000f
+
+
+                // ------------------------------------------------
+                // 从上层到下层
+                // 只选一个
+                // ------------------------------------------------
+
+                for (
+                    org in activeOrganisms.reversed()
+                ) {
+
+                    if (
+                        org.checkAndApplyImpulse(
+                            tx,
+                            ty,
+                            baseScale
+                        )
+                    ) {
+
+                        selectedOrganism =
+                            org
+
+                        touchX =
+                            tx
+
+                        touchY =
+                            ty
+
+                        touchDown =
+                            true
+
+                        break
+                    }
+                }
+            }
+
+
+            MotionEvent.ACTION_MOVE -> {
+
+                // ------------------------------------------------
+                // 只有当前对象接收触摸位置
+                // ------------------------------------------------
+
+                if (
+                    selectedOrganism != null
+                ) {
+
+                    touchX =
+                        tx
+
+                    touchY =
+                        ty
+
+                    touchDown =
+                        true
+                }
+            }
+
+
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
+
+                touchDown =
+                    false
+
+                touchX =
+                    -1000f
+
+                touchY =
+                    -1000f
+
+                selectedOrganism =
+                    null
+            }
+
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+
+                // 忽略多指
+            }
+
+
+            MotionEvent.ACTION_POINTER_UP -> {
+
+                // 不切换当前对象
+            }
+        }
+    }
+
+
+    // ========================================================
+    // Render
+    // ========================================================
+
+    fun render(
+        canvas: Canvas,
+        w: Float,
+        h: Float
+    ) {
+
+        if (
+            w <= 0f ||
+            h <= 0f
+        ) {
+            return
+        }
+
+
+        val now =
+            System.nanoTime()
+
+
+        lastTimeNanos =
+            now
+
+
+        val baseScale =
+            min(
+                w,
+                h
+            ) /
+            400f
+
+
+        canvas.drawColor(
+            Color.rgb(
+                8,
+                9,
+                12
+            )
+        )
+
+
+        // ----------------------------------------------------
+        // 更新 + 绘制
+        // ----------------------------------------------------
+
+        val iterator =
+            activeOrganisms.iterator()
+
+
+        while (
+            iterator.hasNext()
+        ) {
+
+            val org =
+                iterator.next()
+
+
+            org.update(
+                w,
+                h,
+                baseScale
+            )
+
+
+            if (
+                org.isOffscreen
+            ) {
+
+                // 如果被删除的是当前对象，
+                // 立即解除选择。
+                if (
+                    selectedOrganism ===
+                    org
+                ) {
+
+                    selectedOrganism =
+                        null
+
+                    touchDown =
+                        false
+
+                    touchX =
+                        -1000f
+
+                    touchY =
+                        -1000f
+                }
+
+
+                iterator.remove()
+            }
+            else {
+
+                // ------------------------------------------------
+                // 非常重要：
+                //
+                // 非当前对象永远收到 -1000,-1000。
+                //
+                // 所以别的水母绝不会因为当前点击而产生
+                // 同样的局部水波。
+                // ------------------------------------------------
+
+                val active =
+                    selectedOrganism ===
+                    org
+
+
+                org.draw(
+                    canvas,
+                    baseScale,
+
+                    if (active)
+                        touchX
+                    else
+                        -1000f,
+
+                    if (active)
+                        touchY
+                    else
+                        -1000f,
+
+                    active &&
+                    touchDown
+                )
+            }
+        }
+
+
+        // ====================================================
+        // 动态数量
+        //
+        // 不是固定数量。
+        //
+        // 允许：
+        //   1
+        //   2
+        //   3
+        //   4
+        //   5
+        //   6
+        //   7
+        //
+        // 但小数量概率明显更高。
+        // ====================================================
+
+        val timeSec =
+            now /
+            1_000_000_000.0
+
+
+        val wave =
+            (
+                sin(
+                    timeSec *
+                    0.045
+                ) +
+                sin(
+                    timeSec *
+                    0.017 +
+                    1.7
+                ) *
+                0.55
+            ) /
+            1.55
+
+
+        val targetCount =
+            when {
+
+                wave <
+                    -0.52 ->
+                    1
+
+                wave <
+                    -0.12 ->
+                    2
+
+                wave <
+                    0.30 ->
+                    3
+
+                wave <
+                    0.62 ->
+                    4
+
+                wave <
+                    0.84 ->
+                    5
+
+                wave <
+                    0.94 ->
+                    6
+
+                else ->
+                    7
+            }
+
+
+        // ----------------------------------------------------
+        // 数量低于目标时，慢慢补一只。
+        //
+        // 不瞬间生成一群。
+        // ----------------------------------------------------
+
+        if (
+            activeOrganisms.size <
+            targetCount &&
+            Random.nextFloat() <
+            0.011f
+        ) {
+
+            val existingSpecies =
+                activeOrganisms
+                    .map {
+                        it.speciesId
+                    }
+                    .toSet()
+
+
+            val missingSpecies =
+                allowedSpecies
+                    .filter {
+                        !existingSpecies
+                            .contains(it)
+                    }
+
+
+            val species =
+                if (
+                    missingSpecies.isNotEmpty()
+                ) {
+
+                    missingSpecies.random()
+
+                }
+                else {
+
+                    allowedSpecies.random()
+                }
+
+
+            val position =
+                generateScatteredPosition(
+                    w,
+                    h
+                )
+
+
+            activeOrganisms.add(
+                instantiateOrganism(
+                    species,
+                    position.first,
+                    position.second
+                )
+            )
+        }
+    }
+}

@@ -1,0 +1,2073 @@
+﻿package com.agsl.wallpaper
+
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.view.MotionEvent
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.math.pow
+import kotlin.random.Random
+
+
+// ============================================================
+// VERSION
+// ============================================================
+
+private const val JELLYFISH_VERSION =
+    "2026-09-13-MATH-03-SINGLE-STABLE"
+
+
+// ============================================================
+// Float-only math
+// ============================================================
+
+private const val PI_F =
+    3.1415927f
+
+private const val TWO_PI_F =
+    6.2831855f
+
+
+private fun sinF(
+    value: Float
+): Float {
+    return sin(
+        value.toDouble()
+    ).toFloat()
+}
+
+
+private fun cosF(
+    value: Float
+): Float {
+    return cos(
+        value.toDouble()
+    ).toFloat()
+}
+
+
+private fun atan2F(
+    y: Float,
+    x: Float
+): Float {
+    return atan2(
+        y.toDouble(),
+        x.toDouble()
+    ).toFloat()
+}
+
+
+private fun sqrtF(
+    value: Float
+): Float {
+    return sqrt(
+        max(
+            value,
+            0f
+        ).toDouble()
+    ).toFloat()
+}
+
+
+private fun powF(
+    base: Float,
+    exponent: Float
+): Float {
+
+    val safeBase =
+        max(
+            base,
+            0.05f
+        )
+
+    return safeBase
+        .toDouble()
+        .pow(
+            exponent.toDouble()
+        )
+        .toFloat()
+}
+
+
+private fun hypotF(
+    x: Float,
+    y: Float
+): Float {
+
+    return sqrtF(
+        x * x +
+        y * y
+    )
+}
+
+
+// ============================================================
+// Base organism
+// ============================================================
+
+abstract class AbyssalOrganism(
+
+    var x: Float,
+    var y: Float,
+
+    val scaleFactor: Float,
+
+    val speciesId: Int,
+
+    val rgb: IntArray,
+
+    var vx: Float,
+    var vy: Float,
+
+    var localT: Float
+) {
+
+    companion object {
+
+        // 不再使用 2600/3000
+        // 1900 已经足够保留数学纹理
+        const val POINT_COUNT =
+            1900
+
+
+        // 最大允许局部坐标
+        //
+        // 任何数学异常点：
+        // 直接丢弃
+        //
+        // 这样不可能再出现
+        // 图2那种超长离群条带
+        const val MAX_LOCAL_X =
+            270f
+
+        const val MAX_LOCAL_Y =
+            320f
+    }
+
+
+    val points =
+        FloatArray(
+            POINT_COUNT * 2
+        )
+
+
+    var isOffscreen =
+        false
+
+
+    // 只属于这一只对象
+    var startlePulse =
+        0f
+
+
+    // 只属于这一只对象
+    var highlight =
+        0f
+
+
+    private var age =
+        Random.nextFloat() *
+        100f
+
+
+    private val driftPhase =
+        Random.nextFloat() *
+        TWO_PI_F
+
+
+    private val driftStrength =
+        Random.nextFloat() *
+        0.45f +
+        0.55f
+
+
+    protected val paint =
+        Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            strokeCap =
+                Paint.Cap.ROUND
+        }
+
+
+    abstract fun evaluateShape(
+        scale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int
+
+
+    // ========================================================
+    // Hit radius
+    // ========================================================
+
+    open fun hitRadius(
+        baseScale: Float
+    ): Float {
+
+        return 115f *
+            scaleFactor *
+            baseScale
+    }
+
+
+    fun hitTest(
+        tx: Float,
+        ty: Float,
+        baseScale: Float
+    ): Boolean {
+
+        val radius =
+            hitRadius(
+                baseScale
+            )
+
+
+        val dx =
+            tx - x
+
+        val dy =
+            ty - y
+
+
+        return (
+            dx * dx +
+            dy * dy
+        ) <=
+            radius * radius
+    }
+
+
+    // ========================================================
+    // Click
+    // ========================================================
+
+    fun clicked() {
+
+        startlePulse =
+            1.45f
+
+        highlight =
+            1.0f
+    }
+
+
+    // ========================================================
+    // Point safety
+    //
+    // 防止数学公式生成：
+    // NaN
+    // Infinity
+    // 超大离群点
+    // ========================================================
+
+    protected fun validLocalPoint(
+        px: Float,
+        py: Float
+    ): Boolean {
+
+        if (
+            !px.isFinite() ||
+            !py.isFinite()
+        ) {
+            return false
+        }
+
+
+        if (
+            abs(px) >
+            MAX_LOCAL_X
+        ) {
+            return false
+        }
+
+
+        if (
+            abs(py) >
+            MAX_LOCAL_Y
+        ) {
+            return false
+        }
+
+
+        return true
+    }
+
+
+    // ========================================================
+    // Append point safely
+    // ========================================================
+
+    protected fun appendPoint(
+        ptr: Int,
+        localX: Float,
+        localY: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        if (
+            !validLocalPoint(
+                localX,
+                localY
+            )
+        ) {
+            return ptr
+        }
+
+
+        val point =
+            waterDisplacement(
+                x + localX,
+                y + localY,
+                touchX,
+                touchY,
+                touchDown
+            )
+
+
+        if (
+            !point.first.isFinite() ||
+            !point.second.isFinite()
+        ) {
+            return ptr
+        }
+
+
+        points[ptr] =
+            point.first
+
+        points[ptr + 1] =
+            point.second
+
+
+        return ptr + 2
+    }
+
+
+    // ========================================================
+    // Update
+    // ========================================================
+
+    fun update(
+        w: Float,
+        h: Float,
+        baseScale: Float
+    ) {
+
+        age +=
+            0.016f
+
+
+        vx +=
+            sinF(
+                age * 0.34f +
+                driftPhase
+            ) *
+            0.0020f *
+            driftStrength
+
+
+        vy +=
+            cosF(
+                age * 0.29f +
+                driftPhase * 0.71f
+            ) *
+            0.0017f *
+            driftStrength
+
+
+        val maxSpeed =
+            0.38f +
+            (
+                1f -
+                scaleFactor
+            ) *
+            0.08f
+
+
+        vx =
+            vx.coerceIn(
+                -maxSpeed,
+                maxSpeed
+            )
+
+
+        vy =
+            vy.coerceIn(
+                -maxSpeed,
+                maxSpeed
+            )
+
+
+        // 只有自己被点击时，
+        // 自己获得 boost
+        val boost =
+            1f +
+            startlePulse *
+            0.85f
+
+
+        x +=
+            vx * boost
+
+
+        y +=
+            vy * boost
+
+
+        // 自己的动画时间
+        localT +=
+            0.011f +
+            startlePulse *
+            0.004f
+
+
+        startlePulse *=
+            0.94f
+
+
+        highlight *=
+            0.965f
+
+
+        // ----------------------------------------------------
+        // 足够宽的离屏边界
+        // ----------------------------------------------------
+
+        val margin =
+            260f *
+            baseScale *
+            scaleFactor
+
+
+        if (
+            x < -margin ||
+            x > w + margin ||
+            y < -margin ||
+            y > h + margin
+        ) {
+
+            isOffscreen =
+                true
+        }
+    }
+
+
+    // ========================================================
+    // Draw
+    // ========================================================
+
+    fun draw(
+        canvas: Canvas,
+        baseScale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ) {
+
+        val scale =
+            baseScale *
+            scaleFactor
+
+
+        val glow =
+            highlight.coerceIn(
+                0f,
+                1f
+            )
+
+
+        var alpha =
+            62f +
+            scaleFactor *
+            46f
+
+
+        alpha +=
+            glow *
+            130f
+
+
+        alpha +=
+            startlePulse *
+            17f
+
+
+        alpha =
+            alpha.coerceIn(
+                48f,
+                245f
+            )
+
+
+        paint.strokeWidth =
+            1.5f +
+            scaleFactor *
+            0.42f +
+            glow *
+            0.75f
+
+
+        paint.color =
+            Color.argb(
+                alpha.toInt(),
+                rgb[0],
+                rgb[1],
+                rgb[2]
+            )
+
+
+        val count =
+            evaluateShape(
+                scale,
+                touchX,
+                touchY,
+                touchDown
+            )
+
+
+        canvas.drawPoints(
+            points,
+            0,
+            count,
+            paint
+        )
+    }
+
+
+    // ========================================================
+    // Water interaction
+    // ========================================================
+
+    protected fun waterDisplacement(
+        px: Float,
+        py: Float,
+        tx: Float,
+        ty: Float,
+        touchDown: Boolean
+    ): Pair<Float, Float> {
+
+        if (!touchDown) {
+            return px to py
+        }
+
+
+        val dx =
+            px - tx
+
+        val dy =
+            py - ty
+
+
+        val d2 =
+            dx * dx +
+            dy * dy
+
+
+        if (
+            d2 > 1f &&
+            d2 < 22000f
+        ) {
+
+            val d =
+                sqrtF(
+                    d2
+                )
+
+
+            val force =
+                (
+                    1f -
+                    d / 148f
+                ) *
+                16f
+
+
+            return (
+                px +
+                dx / d *
+                force
+            ) to (
+                py +
+                dy / d *
+                force
+            )
+        }
+
+
+        return px to py
+    }
+}
+
+
+// ============================================================
+// Species 0
+//
+// CLASSIC
+//
+// 重点修复：
+// 1. pow 项 clamp
+// 2. 最终坐标安全过滤
+//
+// ============================================================
+
+class ClassicJellyfish(
+    x: Float,
+    y: Float,
+    scale: Float,
+    color: IntArray,
+    vx: Float,
+    vy: Float,
+    t: Float
+) : AbyssalOrganism(
+
+    x,
+    y,
+    scale,
+    0,
+    color,
+    vx,
+    vy,
+    t
+
+) {
+
+    override fun hitRadius(
+        baseScale: Float
+    ): Float {
+
+        return 125f *
+            scaleFactor *
+            baseScale
+    }
+
+
+    override fun evaluateShape(
+        scale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr =
+            0
+
+
+        val step =
+            10000f /
+            POINT_COUNT
+
+
+        for (
+            p in
+            POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p * step
+
+
+            val yVal =
+                i / 43f
+
+
+            val k =
+                5f *
+                cosF(
+                    i / 14f
+                ) *
+                cosF(
+                    yVal / 30f
+                )
+
+
+            val e =
+                yVal / 8f -
+                13f
+
+
+            val d =
+                (
+                    k * k +
+                    e * e
+                ) /
+                59f +
+                6f
+
+
+            val q =
+                90f -
+                5f *
+                sinF(
+                    atan2F(k, e) *
+                    e
+                ) +
+                k *
+                (
+                    3f +
+                    sinF(
+                        d * d -
+                        localT * 2f
+                    )
+                )
+
+
+            val c =
+                d / 2f -
+                localT / 18f
+
+
+            val rx =
+                q *
+                sinF(c)
+
+
+            // ------------------------------------------------
+            // 原版这里最容易产生：
+            //
+            // d*d*pow(...)
+            //
+            // 直接把 ry 推到几百甚至几千。
+            //
+            // 现在只限制这个附加项，
+            // 保留公式的形态，
+            // 不让它爆炸。
+            // ------------------------------------------------
+
+            val exponent =
+                sinF(
+                    d * 2f -
+                    localT / 3f
+                )
+
+
+            val nonlinear =
+                (
+                    d *
+                    d *
+                    powF(
+                        d,
+                        exponent
+                    )
+                ).coerceIn(
+                    0f,
+                    78f
+                )
+
+
+            val ry =
+                (
+                    q +
+                    nonlinear
+                ) *
+                cosF(c)
+
+
+            ptr =
+                appendPoint(
+                    ptr,
+                    rx * scale,
+                    ry * scale,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+        }
+
+
+        return ptr
+    }
+}
+
+
+// ============================================================
+// Species 1
+//
+// CROWN
+//
+// 核心修复：
+// 删除 +(i % 2) * 3
+//
+// 这个相位项就是双分支的主要来源。
+// ============================================================
+
+class CrownJellyfish(
+    x: Float,
+    y: Float,
+    scale: Float,
+    color: IntArray,
+    vx: Float,
+    vy: Float,
+    t: Float
+) : AbyssalOrganism(
+
+    x,
+    y,
+    scale,
+    1,
+    color,
+    vx,
+    vy,
+    t
+
+) {
+
+    override fun hitRadius(
+        baseScale: Float
+    ): Float {
+
+        return 135f *
+            scaleFactor *
+            baseScale
+    }
+
+
+    override fun evaluateShape(
+        scale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr =
+            0
+
+
+        val step =
+            20000f /
+            POINT_COUNT
+
+
+        for (
+            p in
+            POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p * step
+
+
+            val yVal =
+                i / 110f
+
+
+            val k =
+                8f *
+                cosF(
+                    if (
+                        yVal < 59f
+                    ) {
+                        (
+                            i.toInt() %
+                            9
+                        ).toFloat()
+                    } else {
+                        i * 4f
+                    }
+                )
+
+
+            val e =
+                yVal / 7f -
+                16f
+
+
+            val d =
+                (
+                    k * k +
+                    e * e
+                ) /
+                89f +
+                1.1f
+
+
+            val q =
+                k / d * 3f -
+                e * sinF(k) +
+                (
+                    k /
+                    (d * 3f)
+                ) *
+                (
+                    9f -
+                    d * 4f *
+                    sinF(
+                        d * d -
+                        localT +
+                        sinF(e) / 2f
+                    )
+                ) +
+                70f
+
+
+            // =================================================
+            // BUG FIX
+            //
+            // 原来：
+            //
+            // + (i % 2) * 3
+            //
+            // 造成两个相位完全不同的分支，
+            // 看起来就是一对水母。
+            //
+            // 现在删除。
+            // =================================================
+
+            val c =
+                d / 1.5f -
+                localT / 12f
+
+
+            val rx =
+                q *
+                sinF(c)
+
+
+            val ry =
+                q *
+                cosF(c) +
+                e
+
+
+            ptr =
+                appendPoint(
+                    ptr,
+                    rx * scale,
+                    ry * scale,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+        }
+
+
+        return ptr
+    }
+}
+
+
+// ============================================================
+// Species 2
+//
+// RADIAL
+//
+// 同样删除 +(i % 2) * 3
+// ============================================================
+
+class RadialJellyfish(
+    x: Float,
+    y: Float,
+    scale: Float,
+    color: IntArray,
+    vx: Float,
+    vy: Float,
+    t: Float
+) : AbyssalOrganism(
+
+    x,
+    y,
+    scale,
+    2,
+    color,
+    vx,
+    vy,
+    t
+
+) {
+
+    override fun hitRadius(
+        baseScale: Float
+    ): Float {
+
+        return 140f *
+            scaleFactor *
+            baseScale
+    }
+
+
+    override fun evaluateShape(
+        scale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr =
+            0
+
+
+        val step =
+            20000f /
+            POINT_COUNT
+
+
+        for (
+            p in
+            POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p * step
+
+
+            val yVal =
+                i / 99f
+
+
+            val k =
+                9f *
+                cosF(
+                    yVal * 2f
+                )
+
+
+            val e =
+                yVal / 8f -
+                12f
+
+
+            val d =
+                (
+                    k * k +
+                    e * e
+                ) /
+                79f +
+                1f
+
+
+            val q =
+                79f -
+                e * sinF(k) +
+                (
+                    k / d
+                ) *
+                (
+                    8f +
+                    4f *
+                    sinF(
+                        sinF(
+                            d * d +
+                            e / 9f -
+                            localT
+                        )
+                    )
+                )
+
+
+            // =================================================
+            // BUG FIX
+            // 删除原来的 +(i % 2) * 3
+            // =================================================
+
+            val c =
+                d / 2f -
+                cosF(
+                    d * 2f
+                ) / 5f -
+                localT / 16f
+
+
+            val rx =
+                q *
+                sinF(c)
+
+
+            val ry =
+                (
+                    q +
+                    40f
+                ) *
+                cosF(c)
+
+
+            ptr =
+                appendPoint(
+                    ptr,
+                    rx * scale,
+                    ry * scale,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+        }
+
+
+        return ptr
+    }
+}
+
+
+// ============================================================
+// Species 3
+//
+// OCTOPUS
+//
+// 保留原数学形态
+// 只加最终坐标保护
+// ============================================================
+
+class AbyssalOctopus(
+    x: Float,
+    y: Float,
+    scale: Float,
+    color: IntArray,
+    vx: Float,
+    vy: Float,
+    t: Float
+) : AbyssalOrganism(
+
+    x,
+    y,
+    scale,
+    3,
+    color,
+    vx,
+    vy,
+    t
+
+) {
+
+    override fun hitRadius(
+        baseScale: Float
+    ): Float {
+
+        return 120f *
+            scaleFactor *
+            baseScale
+    }
+
+
+    override fun evaluateShape(
+        scale: Float,
+        touchX: Float,
+        touchY: Float,
+        touchDown: Boolean
+    ): Int {
+
+        var ptr =
+            0
+
+
+        val step =
+            10000f /
+            POINT_COUNT
+
+
+        for (
+            p in
+            POINT_COUNT - 1 downTo 0
+        ) {
+
+            val i =
+                p * step
+
+
+            val yVal =
+                i / 345f
+
+
+            val baseK =
+                if (
+                    yVal < 11f
+                ) {
+
+                    6f +
+                    sinF(
+                        (
+                            yVal.toInt() xor 8
+                        ).toFloat()
+                    ) * 6f
+
+                } else {
+
+                    yVal / 5f +
+                    cosF(
+                        yVal / 2f
+                    )
+                }
+
+
+            val k =
+                baseK *
+                cosF(
+                    i -
+                    localT / 4f
+                )
+
+
+            val e =
+                yVal / 7f -
+                13f
+
+
+            val d =
+                hypotF(
+                    k,
+                    e
+                ) +
+                sinF(
+                    e / 4f +
+                    localT
+                ) / 2f
+
+
+            val q =
+                yVal *
+                (
+                    k /
+                    max(
+                        d,
+                        0.05f
+                    )
+                ) *
+                (
+                    3f +
+                    sinF(
+                        d * 2f +
+                        yVal / 2f -
+                        localT * 4f
+                    )
+                )
+
+
+            val c =
+                d / 2f +
+                1f -
+                localT / 2f
+
+
+            val rx =
+                q +
+                60f *
+                cosF(c)
+
+
+            val ry =
+                q *
+                sinF(c) +
+                d * 29f -
+                110f
+
+
+            ptr =
+                appendPoint(
+                    ptr,
+                    rx * scale,
+                    ry * scale,
+                    touchX,
+                    touchY,
+                    touchDown
+                )
+        }
+
+
+        return ptr
+    }
+}
+
+
+// ============================================================
+// Ecology
+// ============================================================
+
+class JellyfishEcology {
+
+    private val activeOrganisms =
+        ArrayList<AbyssalOrganism>()
+
+
+    private var initialized =
+        false
+
+
+    private var touchX =
+        -1000f
+
+
+    private var touchY =
+        -1000f
+
+
+    private var touchDown =
+        false
+
+
+    // 一次触摸绝对只允许一个对象
+    private var selectedOrganism:
+        AbyssalOrganism? = null
+
+
+    // 4 个真正独立数学物种
+    private val speciesIds =
+        intArrayOf(
+            0,
+            1,
+            2,
+            3
+        )
+
+
+    private val speciesColors =
+        arrayOf(
+            intArrayOf(
+                155,
+                195,
+                225
+            ),
+
+            intArrayOf(
+                160,
+                215,
+                185
+            ),
+
+            intArrayOf(
+                190,
+                180,
+                225
+            ),
+
+            intArrayOf(
+                185,
+                165,
+                215
+            )
+        )
+
+
+    // ========================================================
+    // Init
+    // ========================================================
+
+    fun ensureInit(
+        w: Float,
+        h: Float
+    ) {
+
+        if (
+            initialized ||
+            w <= 0f ||
+            h <= 0f
+        ) {
+            return
+        }
+
+
+        // 初始 4 类各一只
+        val order =
+            speciesIds
+                .toList()
+                .shuffled()
+
+
+        for (
+            i in 0 until 4
+        ) {
+
+            val pos =
+                safePosition(
+                    w,
+                    h
+                )
+
+
+            activeOrganisms.add(
+                createOrganism(
+                    order[i],
+                    pos.first,
+                    pos.second
+                )
+            )
+        }
+
+
+        initialized =
+            true
+    }
+
+
+    // ========================================================
+    // Safe position
+    // ========================================================
+
+    private fun safePosition(
+        w: Float,
+        h: Float
+    ): Pair<Float, Float> {
+
+        var bestX =
+            w * 0.5f
+
+        var bestY =
+            h * 0.5f
+
+        var bestDistance =
+            -1f
+
+
+        repeat(20) {
+
+            val candidateX =
+                w *
+                (
+                    0.12f +
+                    Random.nextFloat() *
+                    0.76f
+                )
+
+
+            val candidateY =
+                h *
+                (
+                    0.13f +
+                    Random.nextFloat() *
+                    0.74f
+                )
+
+
+            var nearest =
+                Float.MAX_VALUE
+
+
+            for (
+                organism in activeOrganisms
+            ) {
+
+                val d =
+                    hypotF(
+                        candidateX -
+                            organism.x,
+                        candidateY -
+                            organism.y
+                    )
+
+
+                nearest =
+                    min(
+                        nearest,
+                        d
+                    )
+            }
+
+
+            if (
+                nearest >
+                bestDistance
+            ) {
+
+                bestDistance =
+                    nearest
+
+                bestX =
+                    candidateX
+
+                bestY =
+                    candidateY
+            }
+        }
+
+
+        return bestX to bestY
+    }
+
+
+    // ========================================================
+    // Create organism
+    // ========================================================
+
+    private fun createOrganism(
+        speciesId: Int,
+        x: Float,
+        y: Float
+    ): AbyssalOrganism {
+
+        val direction =
+            Random.nextFloat() *
+            TWO_PI_F
+
+
+        val speed =
+            Random.nextFloat() *
+            0.20f +
+            0.06f
+
+
+        return createOrganism(
+            speciesId,
+            x,
+            y,
+            cosF(direction) *
+                speed,
+            sinF(direction) *
+                speed
+        )
+    }
+
+
+    private fun createOrganism(
+        speciesId: Int,
+        x: Float,
+        y: Float,
+        vx: Float,
+        vy: Float
+    ): AbyssalOrganism {
+
+        // 小型远多于大型
+        val r =
+            Random.nextFloat()
+
+
+        val scale =
+            when {
+
+                r < 0.58f ->
+                    Random.nextFloat() *
+                    0.16f +
+                    0.58f
+
+                r < 0.84f ->
+                    Random.nextFloat() *
+                    0.17f +
+                    0.74f
+
+                r < 0.95f ->
+                    Random.nextFloat() *
+                    0.15f +
+                    0.91f
+
+                else ->
+                    Random.nextFloat() *
+                    0.17f +
+                    1.06f
+            }
+
+
+        val color =
+            speciesColors[
+                speciesId.coerceIn(
+                    0,
+                    speciesColors.lastIndex
+                )
+            ]
+
+
+        val localT =
+            Random.nextFloat() *
+            80f
+
+
+        return when (
+            speciesId
+        ) {
+
+            0 ->
+                ClassicJellyfish(
+                    x,
+                    y,
+                    scale,
+                    color,
+                    vx,
+                    vy,
+                    localT
+                )
+
+            1 ->
+                CrownJellyfish(
+                    x,
+                    y,
+                    scale,
+                    color,
+                    vx,
+                    vy,
+                    localT
+                )
+
+            2 ->
+                RadialJellyfish(
+                    x,
+                    y,
+                    scale,
+                    color,
+                    vx,
+                    vy,
+                    localT
+                )
+
+            else ->
+                AbyssalOctopus(
+                    x,
+                    y,
+                    scale,
+                    color,
+                    vx,
+                    vy,
+                    localT
+                )
+        }
+    }
+
+
+    // ========================================================
+    // Edge spawn
+    // ========================================================
+
+    private fun createEdgeSpawn(
+        w: Float,
+        h: Float,
+        baseScale: Float,
+        speciesId: Int
+    ): AbyssalOrganism {
+
+        val margin =
+            190f *
+            baseScale
+
+
+        var sx =
+            0f
+
+        var sy =
+            0f
+
+
+        when (
+            Random.nextInt(4)
+        ) {
+
+            0 -> {
+                sx = -margin
+                sy =
+                    Random.nextFloat() *
+                    h
+            }
+
+            1 -> {
+                sx =
+                    w + margin
+
+                sy =
+                    Random.nextFloat() *
+                    h
+            }
+
+            2 -> {
+                sx =
+                    Random.nextFloat() *
+                    w
+
+                sy =
+                    -margin
+            }
+
+            else -> {
+                sx =
+                    Random.nextFloat() *
+                    w
+
+                sy =
+                    h + margin
+            }
+        }
+
+
+        val dx =
+            w * 0.5f -
+            sx
+
+        val dy =
+            h * 0.5f -
+            sy
+
+
+        val direction =
+            atan2F(
+                dy,
+                dx
+            )
+
+
+        val actualDirection =
+            if (
+                Random.nextFloat() <
+                0.82f
+            ) {
+                direction
+            } else {
+                Random.nextFloat() *
+                TWO_PI_F
+            }
+
+
+        val speed =
+            Random.nextFloat() *
+            0.18f +
+            0.08f
+
+
+        return createOrganism(
+            speciesId,
+            sx,
+            sy,
+            cosF(
+                actualDirection
+            ) * speed,
+            sinF(
+                actualDirection
+            ) * speed
+        )
+    }
+
+
+    // ========================================================
+    // Touch
+    // ========================================================
+
+    fun onTouchEvent(
+        event: MotionEvent,
+        w: Float,
+        h: Float
+    ) {
+
+        val index =
+            event.actionIndex
+
+
+        val tx =
+            event.getX(index)
+
+
+        val ty =
+            event.getY(index)
+
+
+        val baseScale =
+            min(
+                w,
+                h
+            ) / 400f
+
+
+        when (
+            event.actionMasked
+        ) {
+
+            MotionEvent.ACTION_DOWN -> {
+
+                // 先解除之前的一切
+                selectedOrganism =
+                    null
+
+                touchDown =
+                    false
+
+
+                // 只找一个
+                for (
+                    organism in
+                    activeOrganisms.asReversed()
+                ) {
+
+                    if (
+                        organism.hitTest(
+                            tx,
+                            ty,
+                            baseScale
+                        )
+                    ) {
+
+                        selectedOrganism =
+                            organism
+
+                        organism.clicked()
+
+                        break
+                    }
+                }
+
+
+                if (
+                    selectedOrganism != null
+                ) {
+
+                    touchX =
+                        tx
+
+                    touchY =
+                        ty
+
+                    touchDown =
+                        true
+
+                } else {
+
+                    touchX =
+                        -1000f
+
+                    touchY =
+                        -1000f
+
+                    touchDown =
+                        false
+                }
+            }
+
+
+            MotionEvent.ACTION_MOVE -> {
+
+                // 绝不重新选对象
+                if (
+                    selectedOrganism != null
+                ) {
+
+                    touchX =
+                        tx
+
+                    touchY =
+                        ty
+
+                    touchDown =
+                        true
+                }
+            }
+
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // ignore
+            }
+
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                // ignore
+            }
+
+
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
+
+                selectedOrganism =
+                    null
+
+                touchDown =
+                    false
+
+                touchX =
+                    -1000f
+
+                touchY =
+                    -1000f
+            }
+        }
+    }
+
+
+    // ========================================================
+    // Render
+    // ========================================================
+
+    fun render(
+        canvas: Canvas,
+        w: Float,
+        h: Float
+    ) {
+
+        canvas.drawColor(
+            Color.rgb(
+                8,
+                9,
+                12
+            )
+        )
+
+
+        val baseScale =
+            min(
+                w,
+                h
+            ) / 400f
+
+
+        val iterator =
+            activeOrganisms.iterator()
+
+
+        while (
+            iterator.hasNext()
+        ) {
+
+            val organism =
+                iterator.next()
+
+
+            organism.update(
+                w,
+                h,
+                baseScale
+            )
+
+
+            if (
+                organism.isOffscreen
+            ) {
+
+                if (
+                    selectedOrganism ===
+                    organism
+                ) {
+
+                    selectedOrganism =
+                        null
+
+                    touchDown =
+                        false
+                }
+
+
+                iterator.remove()
+
+            } else {
+
+                val active =
+                    selectedOrganism ===
+                    organism
+
+
+                organism.draw(
+                    canvas,
+                    baseScale,
+
+                    if (active)
+                        touchX
+                    else
+                        -1000f,
+
+                    if (active)
+                        touchY
+                    else
+                        -1000f,
+
+                    active &&
+                    touchDown
+                )
+            }
+        }
+
+
+        // ====================================================
+        // Population
+        //
+        // 最低 2
+        // 最高 6
+        //
+        // 不随机暴力删除
+        // 只允许自然游出
+        // ====================================================
+
+        if (
+            activeOrganisms.size < 2
+        ) {
+
+            repeat(
+                2 -
+                activeOrganisms.size
+            ) {
+
+                activeOrganisms.add(
+                    createEdgeSpawn(
+                        w,
+                        h,
+                        baseScale,
+                        chooseSpecies()
+                    )
+                )
+            }
+        }
+
+
+        if (
+            activeOrganisms.size < 6
+        ) {
+
+            val count =
+                activeOrganisms.size
+
+
+            val spawnChance =
+                when {
+
+                    count <= 2 ->
+                        0.008f
+
+                    count == 3 ->
+                        0.005f
+
+                    count == 4 ->
+                        0.0022f
+
+                    count == 5 ->
+                        0.0007f
+
+                    else ->
+                        0f
+                }
+
+
+            if (
+                Random.nextFloat() <
+                spawnChance
+            ) {
+
+                activeOrganisms.add(
+                    createEdgeSpawn(
+                        w,
+                        h,
+                        baseScale,
+                        chooseSpecies()
+                    )
+                )
+            }
+        }
+    }
+
+
+    // ========================================================
+    // Prefer missing species
+    // ========================================================
+
+    private fun chooseSpecies(): Int {
+
+        val existing =
+            activeOrganisms
+                .map {
+                    it.speciesId
+                }
+                .toSet()
+
+
+        val missing =
+            speciesIds.filter {
+                !existing.contains(it)
+            }
+
+
+        return if (
+            missing.isNotEmpty()
+        ) {
+
+            missing.random()
+
+        } else {
+
+            speciesIds.random()
+        }
+    }
+}
+
