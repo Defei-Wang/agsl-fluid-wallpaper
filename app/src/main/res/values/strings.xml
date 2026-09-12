@@ -1,3 +1,4 @@
 ﻿<resources>
-    <string name="app_name">Yuruyurau AGSL</string>
+    <string name="app_name">AGSL Fluid Wallpaper</string>
+    <string name="wallpaper_description">High-performance procedural water wave live wallpaper powered by AGSL RuntimeShader.</string>
 </resources>
