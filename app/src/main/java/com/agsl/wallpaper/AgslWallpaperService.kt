@@ -1,7 +1,6 @@
 ﻿package com.agsl.wallpaper
 
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RuntimeShader
 import android.service.wallpaper.WallpaperService
@@ -14,143 +13,131 @@ class AgslWallpaperService : WallpaperService() {
     override fun onCreateEngine(): Engine = AgslEngine()
 
     inner class AgslEngine : Engine(), Choreographer.FrameCallback {
-        private var shader: RuntimeShader? = null
+        private var renderShader: RuntimeShader? = null
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var isVisible = false
         private var startTime = 0L
         private var width = 0f
         private var height = 0f
 
-        private val MAX_SEGMENTS = 16
-        private val segCoords = Array(MAX_SEGMENTS) { FloatArray(4) }
-        private val segTimes = Array(MAX_SEGMENTS) { FloatArray(4) }
-        private var ringIndex = 0
-        private var isDragging = false
-        private var lastX = 0f; private var lastY = 0f; private var lastTimeSec = 0f
-        private var currentForce = 0.40f
+        private var p1Id = -1
+        private var curP1X = 0f; private var curP1Y = 0f
+        private var targetP1Down = 0f; private var curP1Down = 0f
+        private var p1Speed = 0f; private var lastTouchX1 = 0f; private var lastTouchY1 = 0f
 
-        private val processSegmentsCode = (0 until MAX_SEGMENTS).joinToString("\n") { i ->
-            """
-            {
-                float4 sA = uSegA$i; float4 sT = uSegT$i;
-                if (sT.z > 0.5) {
-                    float2 a = (sA.xy - 0.5 * uResolution) / minRes;
-                    float2 b = (sA.zw - 0.5 * uResolution) / minRes;
-                    float2 ba = b - a; float2 pa = uv - a;
-                    float l2 = dot(ba, ba);
-                    float h = (l2 > 0.00002) ? clamp(dot(pa, ba) / l2, 0.0, 1.0) : 0.0;
-                    float d = length(pa - ba * h);
-                    phi = min(phi, d + 0.38 * mix(sT.x, sT.y, h));
-                    dAll = min(dAll, d);
-                    force = max(force, sT.w);
-                }
-            }
-            """
-        }
-
-        private val agslCode = """
-            uniform float2 uResolution;
-            uniform float uTime;
-            ${(0 until MAX_SEGMENTS).joinToString("\n") { "uniform float4 uSegA$it;\nuniform float4 uSegT$it;" }}
-
-            half4 main(float2 fragCoord) {
-                float minRes = min(uResolution.x, uResolution.y);
-                if (minRes <= 0.0) return half4(0.015, 0.015, 0.035, 1.0);
-                float2 uv = (fragCoord - 0.5 * uResolution) / minRes;
-                float phi = 1e9; float dAll = 1e9; float force = 0.35;
-                $processSegmentsCode
-
-                if (phi > 1e8) return half4(0.015, 0.015, 0.035, 1.0);
-
-                float speed = 0.38;
-                float distFromFront = phi - speed * uTime;
-                float targetR = max(0.0, speed * uTime - phi + dAll);
-                float intensity = 0.0072 / (abs(distFromFront) + 0.0012);
-                float R1 = max(0.0, targetR - 0.16);
-                if (R1 > 0.0) intensity += 0.0032 / (abs(distFromFront + 0.16) + 0.0012);
-                if (force > 0.45) {
-                    float R2 = max(0.0, targetR - 0.30);
-                    if (R2 > 0.0) intensity += (0.0020 * force) / (abs(distFromFront + 0.30) + 0.0012);
-                }
-
-                float frontMask = smoothstep(0.022, -0.005, distFromFront);
-                float spatialDecay = 1.0 / sqrt(max(0.03, targetR * 2.2 + 0.06));
-                float age = uTime - phi / speed;
-                float w = intensity * frontMask * spatialDecay * smoothstep(mix(2.8, 4.0, force), mix(2.8, 4.0, force) * 0.55, age) * smoothstep(0.0, 0.04, age);
-                float colorGain = mix(0.25, 0.28, force);
-                half3 col = half3(0.0, 0.0, 0.0);
-                col += mix(half3(1.00, 0.52, 0.20), half3(1.00, 0.36, 0.28), half(force)) * half(w * colorGain);
-                col += mix(half3(0.30, 0.58, 1.00), half3(0.20, 0.80, 1.00), half(force)) * half(w * (colorGain * 0.50));
-                return half4(clamp(half3(0.015, 0.015, 0.035) + col, 0.0, 1.0), 1.0);
-            }
-        """.trimIndent()
+        private var p2Id = -1
+        private var curP2X = 0f; private var curP2Y = 0f
+        private var targetP2Down = 0f; private var curP2Down = 0f
+        private var p2Speed = 0f; private var lastTouchX2 = 0f; private var lastTouchY2 = 0f
 
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             setTouchEventsEnabled(true)
-            shader = RuntimeShader(agslCode)
-            paint.shader = shader
             startTime = System.nanoTime()
-            for (i in 0 until MAX_SEGMENTS) {
-                segCoords[i] = floatArrayOf(0f, 0f, 0f, 0f)
-                segTimes[i] = floatArrayOf(0f, 0f, 0f, 0f)
-            }
+            try {
+                renderShader = RuntimeShader(Shaders.RENDER)
+                paint.shader = renderShader
+            } catch (_: Throwable) {}
         }
-        override fun onTouchEvent(event: MotionEvent) {
-            super.onTouchEvent(event)
-            val t = (System.nanoTime() - startTime) / 1e9f
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    isDragging = true; currentForce = 0.40f; lastX = event.x; lastY = event.y; lastTimeSec = t
-                    ringIndex = (ringIndex + 1) % MAX_SEGMENTS
-                    segCoords[ringIndex] = floatArrayOf(event.x, event.y, event.x, event.y)
-                    segTimes[ringIndex] = floatArrayOf(t, t, 1f, currentForce)
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (!isDragging) return
-                    val dist = hypot(event.x - lastX, event.y - lastY)
-                    val dt = (t - lastTimeSec).coerceAtLeast(0.001f)
-                    currentForce = (currentForce * 0.7f + (0.25f + ((dist / dt) / 1500f).coerceIn(0f, 1f) * 0.75f) * 0.3f).coerceIn(0.2f, 0.95f)
-                    segCoords[ringIndex][2] = event.x; segCoords[ringIndex][3] = event.y; segTimes[ringIndex][1] = t; segTimes[ringIndex][3] = currentForce
-                    if (dist >= 40f) {
-                        ringIndex = (ringIndex + 1) % MAX_SEGMENTS
-                        segCoords[ringIndex] = floatArrayOf(event.x, event.y, event.x, event.y)
-                        segTimes[ringIndex] = floatArrayOf(t, t, 1f, currentForce)
-                        lastX = event.x; lastY = event.y; lastTimeSec = t
-                    }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> isDragging = false
-            }
-        }
-        override fun onSurfaceChanged(h: SurfaceHolder, f: Int, w: Int, height: Int) {
-            super.onSurfaceChanged(h, f, w, height)
-            width = w.toFloat(); this.height = height.toFloat()
-            shader?.setFloatUniform("uResolution", width, this.height)
+
+        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
+            super.onSurfaceChanged(holder, format, w, h)
+            width = w.toFloat(); height = h.toFloat()
+            renderShader?.setFloatUniform("uResolution", width, height)
             drawFrame()
         }
-        override fun onVisibilityChanged(v: Boolean) {
-            super.onVisibilityChanged(v)
-            isVisible = v
-            if (v) Choreographer.getInstance().postFrameCallback(this) else Choreographer.getInstance().removeFrameCallback(this)
+
+        override fun onVisibilityChanged(visible: Boolean) {
+            super.onVisibilityChanged(visible)
+            isVisible = visible
+            if (visible) Choreographer.getInstance().postFrameCallback(this)
+            else Choreographer.getInstance().removeFrameCallback(this)
         }
+
         override fun doFrame(frameTimeNanos: Long) {
             if (!isVisible) return
+            curP1Down += (targetP1Down - curP1Down) * 0.2f
+            curP2Down += (targetP2Down - curP2Down) * 0.2f
+            p1Speed *= 0.85f
+            p2Speed *= 0.85f
             drawFrame()
             Choreographer.getInstance().postFrameCallback(this)
         }
+
         private fun drawFrame() {
-            if (width <= 0f) return
-            val canvas = surfaceHolder.lockHardwareCanvas() ?: return
+            if (width <= 0f || height <= 0f) return
+            val holder = surfaceHolder
+            var canvas: Canvas? = null
             try {
-                canvas.drawColor(Color.rgb(4, 4, 9))
-                val s = shader ?: return
-                s.setFloatUniform("uTime", (System.nanoTime() - startTime) / 1e9f)
-                for (i in 0 until MAX_SEGMENTS) {
-                    s.setFloatUniform("uSegA$i", segCoords[i])
-                    s.setFloatUniform("uSegT$i", segTimes[i])
+                canvas = holder.lockHardwareCanvas()
+                if (canvas != null && renderShader != null) {
+                    val t = (System.nanoTime() - startTime) / 1_000_000_000.0f
+                    renderShader?.setFloatUniform("uTime", t)
+                    renderShader?.setFloatUniform("uPointer1", curP1X, curP1Y, curP1Down, p1Speed)
+                    renderShader?.setFloatUniform("uPointer2", curP2X, curP2Y, curP2Down, p2Speed)
+                    canvas.drawPaint(paint)
                 }
-                canvas.drawPaint(paint)
-            } finally { surfaceHolder.unlockCanvasAndPost(canvas) }
+            } finally {
+                canvas?.let { try { holder.unlockCanvasAndPost(it) } catch (_: Throwable) {} }
+            }
+        }
+
+        override fun onTouchEvent(e: MotionEvent) {
+            super.onTouchEvent(e)
+            val actionIndex = e.actionIndex
+            val pointerId = e.getPointerId(actionIndex)
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                    val x = e.getX(actionIndex)
+                    val y = e.getY(actionIndex)
+                    if (p1Id == -1) {
+                        p1Id = pointerId
+                        curP1X = x; curP1Y = y
+                        lastTouchX1 = x; lastTouchY1 = y
+                        targetP1Down = 1f
+                        p1Speed = 0.05f
+                    } else if (p2Id == -1) {
+                        p2Id = pointerId
+                        curP2X = x; curP2Y = y
+                        lastTouchX2 = x; lastTouchY2 = y
+                        targetP2Down = 1f
+                        p2Speed = 0.05f
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    for (i in 0 until e.pointerCount) {
+                        val pid = e.getPointerId(i)
+                        val x = e.getX(i); val y = e.getY(i)
+                        if (pid == p1Id) {
+                            val dist = hypot((x - lastTouchX1).toDouble(), (y - lastTouchY1).toDouble()).toFloat()
+                            val instantSpeed = (dist / 35f).coerceIn(0f, 1f)
+                            p1Speed = p1Speed * 0.6f + instantSpeed * 0.4f
+                            curP1X = x; curP1Y = y
+                            lastTouchX1 = x; lastTouchY1 = y
+                        } else if (pid == p2Id) {
+                            val dist = hypot((x - lastTouchX2).toDouble(), (y - lastTouchY2).toDouble()).toFloat()
+                            val instantSpeed = (dist / 35f).coerceIn(0f, 1f)
+                            p2Speed = p2Speed * 0.6f + instantSpeed * 0.4f
+                            curP2X = x; curP2Y = y
+                            lastTouchX2 = x; lastTouchY2 = y
+                        }
+                    }
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (pointerId == p1Id) { p1Id = -1; targetP1Down = 0f }
+                    else if (pointerId == p2Id) { p2Id = -1; targetP2Down = 0f }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    p1Id = -1; targetP1Down = 0f
+                    p2Id = -1; targetP2Down = 0f
+                }
+            }
+        }
+
+        override fun onDestroy() {
+            super.onDestroy()
+            Choreographer.getInstance().removeFrameCallback(this)
+            renderShader = null
         }
     }
 }
