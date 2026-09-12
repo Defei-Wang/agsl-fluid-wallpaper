@@ -9,7 +9,7 @@ uniform float4 uPointer2; // xy: 坐标, z: 按下态, w: 滤波手速
 
 half4 main(float2 fragCoord) {
     float minRes = min(uResolution.x, uResolution.y);
-    if (minRes <= 0.0) return half4(0.001, 0.002, 0.004, 1.0);
+    if (minRes <= 0.0) return half4(0.001, 0.002, 0.005, 1.0);
     float2 uv = (fragCoord - 0.5 * uResolution) / minRes;
 
     float2 p1 = (uPointer1.xy - 0.5 * uResolution) / minRes;
@@ -42,7 +42,7 @@ half4 main(float2 fragCoord) {
 
     // 2. 快速划动的油膜切割撕裂 (Slicing Groove)
     if (uPointer1.z > 0.01 && uPointer1.w > 0.18) {
-        float2 velDir = normalize(p1 - (p1 - float2(0.01, 0.01))); // 简化速度切线
+        float2 velDir = normalize(p1 - (p1 - float2(0.01, 0.01)));
         float lineDist = abs(dot(uv - p1, float2(-velDir.y, velDir.x)));
         float d1 = length(uv - p1);
         tearEffect *= smoothstep(0.004, 0.025, lineDist + d1 * 0.15);
@@ -52,14 +52,15 @@ half4 main(float2 fragCoord) {
     float2 warpedUV = uv - displacement;
     float t = uTime * 0.07;
 
-    // 纳米级暗调油膜干涉纹理（纯冷色调：钛灰与深青，绝对无紫光）
+    // 纳米级暗调油膜干涉纹理
     float q = sin(warpedUV.x * 13.0 + t) * cos(warpedUV.y * 13.0 - t)
             + cos(length(warpedUV * 1.4) * 16.0 - t * 1.2);
     
     float sheen = (q * 0.5 + 0.5) * tearEffect;
 
-    half3 abyss = half3(0.001, 0.002, 0.004);
-    half3 filmColor = half3(0.012, 0.035, 0.050) + half3(0.008, 0.020, 0.030) * sin(sheen * 6.28318 + t);
+    // 严格锁定为冷色调（深蓝/青绿），红分量压到极低，彻底根除任何紫光
+    half3 abyss = half3(0.001, 0.003, 0.007);
+    half3 filmColor = half3(0.005, 0.028, 0.055) + half3(0.002, 0.015, 0.035) * sin(sheen * 6.28318 + t);
 
     half3 col = abyss + filmColor;
 

@@ -20,24 +20,16 @@ class AgslWallpaperService : WallpaperService() {
         private var width = 0f
         private var height = 0f
 
-        private var p1Id = -1
-        private var curP1X = 0f; private var curP1Y = 0f
-        private var targetP1Down = 0f; private var curP1Down = 0f
-        private var p1Speed = 0f; private var lastTouchX1 = 0f; private var lastTouchY1 = 0f
+        private var p1Id = -1; private var curP1X = 0f; private var curP1Y = 0f
+        private var targetP1Down = 0f; private var curP1Down = 0f; private var p1Speed = 0f; private var lastX1 = 0f; private var lastY1 = 0f
+        private var p2Id = -1; private var curP2X = 0f; private var curP2Y = 0f
+        private var targetP2Down = 0f; private var curP2Down = 0f; private var p2Speed = 0f; private var lastX2 = 0f; private var lastY2 = 0f
 
-        private var p2Id = -1
-        private var curP2X = 0f; private var curP2Y = 0f
-        private var targetP2Down = 0f; private var curP2Down = 0f
-        private var p2Speed = 0f; private var lastTouchX2 = 0f; private var lastTouchY2 = 0f
-
-        override fun onCreate(surfaceHolder: SurfaceHolder) {
-            super.onCreate(surfaceHolder)
+        override fun onCreate(holder: SurfaceHolder) {
+            super.onCreate(holder)
             setTouchEventsEnabled(true)
             startTime = System.nanoTime()
-            try {
-                renderShader = RuntimeShader(Shaders.RENDER)
-                paint.shader = renderShader
-            } catch (_: Throwable) {}
+            try { renderShader = RuntimeShader(Shaders.RENDER); paint.shader = renderShader } catch (_: Throwable) {}
         }
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) {
@@ -58,18 +50,16 @@ class AgslWallpaperService : WallpaperService() {
             if (!isVisible) return
             curP1Down += (targetP1Down - curP1Down) * 0.2f
             curP2Down += (targetP2Down - curP2Down) * 0.2f
-            p1Speed *= 0.85f
-            p2Speed *= 0.85f
+            p1Speed *= 0.85f; p2Speed *= 0.85f
             drawFrame()
             Choreographer.getInstance().postFrameCallback(this)
         }
 
         private fun drawFrame() {
             if (width <= 0f || height <= 0f) return
-            val holder = surfaceHolder
             var canvas: Canvas? = null
             try {
-                canvas = holder.lockHardwareCanvas()
+                canvas = surfaceHolder.lockHardwareCanvas()
                 if (canvas != null && renderShader != null) {
                     val t = (System.nanoTime() - startTime) / 1_000_000_000.0f
                     renderShader?.setFloatUniform("uTime", t)
@@ -78,58 +68,39 @@ class AgslWallpaperService : WallpaperService() {
                     canvas.drawPaint(paint)
                 }
             } finally {
-                canvas?.let { try { holder.unlockCanvasAndPost(it) } catch (_: Throwable) {} }
+                canvas?.let { try { surfaceHolder.unlockCanvasAndPost(it) } catch (_: Throwable) {} }
             }
         }
 
         override fun onTouchEvent(e: MotionEvent) {
             super.onTouchEvent(e)
-            val actionIndex = e.actionIndex
-            val pointerId = e.getPointerId(actionIndex)
+            val idx = e.actionIndex; val pid = e.getPointerId(idx)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                    val x = e.getX(actionIndex)
-                    val y = e.getY(actionIndex)
-                    if (p1Id == -1) {
-                        p1Id = pointerId
-                        curP1X = x; curP1Y = y
-                        lastTouchX1 = x; lastTouchY1 = y
-                        targetP1Down = 1f
-                        p1Speed = 0.05f
-                    } else if (p2Id == -1) {
-                        p2Id = pointerId
-                        curP2X = x; curP2Y = y
-                        lastTouchX2 = x; lastTouchY2 = y
-                        targetP2Down = 1f
-                        p2Speed = 0.05f
-                    }
+                    val x = e.getX(idx); val y = e.getY(idx)
+                    if (p1Id == -1) { p1Id = pid; curP1X = x; curP1Y = y; lastX1 = x; lastY1 = y; targetP1Down = 1f; p1Speed = 0.05f }
+                    else if (p2Id == -1) { p2Id = pid; curP2X = x; curP2Y = y; lastX2 = x; lastY2 = y; targetP2Down = 1f; p2Speed = 0.05f }
                 }
                 MotionEvent.ACTION_MOVE -> {
                     for (i in 0 until e.pointerCount) {
-                        val pid = e.getPointerId(i)
-                        val x = e.getX(i); val y = e.getY(i)
-                        if (pid == p1Id) {
-                            val dist = hypot((x - lastTouchX1).toDouble(), (y - lastTouchY1).toDouble()).toFloat()
-                            val instantSpeed = (dist / 35f).coerceIn(0f, 1f)
-                            p1Speed = p1Speed * 0.6f + instantSpeed * 0.4f
-                            curP1X = x; curP1Y = y
-                            lastTouchX1 = x; lastTouchY1 = y
-                        } else if (pid == p2Id) {
-                            val dist = hypot((x - lastTouchX2).toDouble(), (y - lastTouchY2).toDouble()).toFloat()
-                            val instantSpeed = (dist / 35f).coerceIn(0f, 1f)
-                            p2Speed = p2Speed * 0.6f + instantSpeed * 0.4f
-                            curP2X = x; curP2Y = y
-                            lastTouchX2 = x; lastTouchY2 = y
+                        val id = e.getPointerId(i); val x = e.getX(i); val y = e.getY(i)
+                        if (id == p1Id) {
+                            val dist = hypot((x - lastX1).toDouble(), (y - lastX1).toDouble()).toFloat()
+                            p1Speed = (p1Speed * 0.6f + (dist / 35f).coerceIn(0f, 1f) * 0.4f)
+                            curP1X = x; curP1Y = y; lastX1 = x; lastY1 = y
+                        } else if (id == p2Id) {
+                            val dist = hypot((x - lastX2).toDouble(), (y - lastX2).toDouble()).toFloat()
+                            p2Speed = (p2Speed * 0.6f + (dist / 35f).coerceIn(0f, 1f) * 0.4f)
+                            curP2X = x; curP2Y = y; lastX2 = x; lastY2 = y
                         }
                     }
                 }
                 MotionEvent.ACTION_POINTER_UP -> {
-                    if (pointerId == p1Id) { p1Id = -1; targetP1Down = 0f }
-                    else if (pointerId == p2Id) { p2Id = -1; targetP2Down = 0f }
+                    if (pid == p1Id) { p1Id = -1; targetP1Down = 0f }
+                    else if (pid == p2Id) { p2Id = -1; targetP2Down = 0f }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    p1Id = -1; targetP1Down = 0f
-                    p2Id = -1; targetP2Down = 0f
+                    p1Id = -1; targetP1Down = 0f; p2Id = -1; targetP2Down = 0f
                 }
             }
         }
