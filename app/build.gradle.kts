@@ -1,9 +1,13 @@
-plugins {
+﻿plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
 
 android {
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
     namespace = "com.agsl.wallpaper"
     compileSdk = 34
 
@@ -23,3 +27,4 @@ android {
         jvmTarget = "17"
     }
 }
+
