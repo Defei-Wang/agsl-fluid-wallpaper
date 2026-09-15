@@ -1,20 +1,27 @@
 # AGSL Fluid Wallpaper Engine (v1.0.0 ~ v8.0.0)
 
-## 高性能物理流体与深海生物自组织运动引擎
+## 高性能流体与深海生物运动引擎
 
-[English Documentation](#english-documentation) | [中文完整技术文档与全版本演进白皮书](#中文完整技术文档与全版本演进白皮书)
+[English Documentation](#english-documentation) | [中文技术文档与版本演进剖析](#中文技术文档与版本演进剖析)
+
+## Credits
+
+The marine organism models and source logic used from **v5.2.0 through v8.0.0** are based on original works by **@yuruyurau (#つぶやきProcessing)** on X. The organism designs, procedural forms, and core mathematical constructions come from those works. This project adapts, restructures, and integrates them into an Android AGSL/Kotlin live-wallpaper engine.
+
+本项目 **v5.2.0 至 v8.0.0** 使用的海洋生物模型及相关代码逻辑均基于 **X 用户 @yuruyurau（#つぶやきProcessing）** 的原创作品。海洋生物的设计、程序化形态和核心数学构造来自原作品；本项目主要负责 Android AGSL/Kotlin 侧的移植、重构和整合。
+
 
 # English Documentation
 
 ## 1. Project Overview & Architectural Philosophy
 
-The **AGSL Fluid Wallpaper Engine** is an open-source procedural live-wallpaper engine for Android 13+ (API level 33+). It uses the **Android Graphics Shading Language (AGSL)**, Skia's `RuntimeShader`, and the hardware-accelerated Canvas pipeline to generate the scene directly on the device.
+The **AGSL Fluid Wallpaper Engine** is an open-source procedural live-wallpaper engine for Android 13+ (API level 33+). It uses **Android Graphics Shading Language (AGSL)**, Skia's `RuntimeShader`, and the hardware-accelerated Canvas pipeline to generate the scene directly on the device.
 
 The project has gone through two distinct architectural phases:
 
 1. **Hydrodynamic Fluid Manifold Era (v1.0.0 ~ v5.1.0)**: The early engine separates low-cost physical history integration on the CPU from analytical coordinate evaluation on the GPU. The goal is to keep the renderer free of external texture allocations while maintaining high refresh-rate performance.
 
-2. **Abyssal Ecological Kinematics Era (v5.2.0 ~ v8.0.0)**: The project then shifts from a fluid-only interaction model to a small procedural deep-sea ecosystem. Motion is driven by each organism's own mathematical shape, orbit, phase, and damping rules.
+2. **Procedural Marine Organism Phase (v5.2.0 ~ v8.0.0)**: From v5.2.0 onward, the project starts integrating procedural marine organisms. Their shapes and motion are driven by the underlying mathematical forms rather than by sprite animation.
 
 ### Key Characteristics
 
@@ -26,7 +33,7 @@ The project has gone through two distinct architectural phases:
 
 - **Procedural morphology**: Organisms are generated from analytical coordinate mappings rather than static meshes or sprite sheets.
 
-## 2. Complete Version Iteration Chronology (v1.0.0 ~ v8.0.0)
+## 2. Version History (v1.0.0 ~ v8.0.0)
 
 | Version | Milestone | Main technical changes | Main limitation / reason for the next iteration |
 |---|---|---|---|
@@ -41,7 +48,7 @@ The project has gone through two distinct architectural phases:
 | **v7.0.0** | Refined Engine & Sharp Rendering | Restored 10,000-point detail; time-varying phase scanning for golden stippling; five depth/luminance layers. | Medium and ultra-long jellyfish still showed an artificial vertical “spring” response when touched. |
 | **v8.0.0** | Kinematics & Native Orbit Update | Native large-radius orbit for the long jellyfish; doubled ultra-long jellyfish propulsion stroke; independent hydroid topology; unified ease-out damping. | Current production baseline for the deep-sea ecological wallpaper. |
 
-## 3. Mathematical Foundations by Version
+## 3. Mathematical Foundations
 
 ### 3.1 v1.0.0 ~ v2.0.0: Potential Flow & Dipole Mechanics
 
@@ -107,9 +114,9 @@ $$\mathbf{L} = \oint (\mathbf{r} \times \mathbf{v}) \\, \mathrm{d}t, \quad \math
 
 $$\Delta \mathbf{x}\_{\text{shear}} = \mathbf{n}\_\perp \left[ \frac{d\_\perp}{\kappa + \vert{}d\_\perp\vert{}} \right] A \exp\left(-\frac{d\_\parallel^2}{\sigma\_\parallel^2} - \frac{d\_\perp^2}{\sigma\_\perp^2}\right)$$
 
-### 3.5 v6.0.0 ~ v8.0.0: Abyssal Ecological Manifolds & Kinematics
+### 3.5 v5.2.0 ~ v8.0.0: Procedural Marine Organisms
 
-From v5.2.0 onward, the codebase develops a set of abyssal organisms described by parametric mathematical topologies:
+From v5.2.0 onward, the project integrates a set of procedural marine organisms based on the original work of **@yuruyurau (#つぶやきProcessing)**. The Android version adapts and restructures those organisms for the AGSL/Kotlin renderer; the organism designs, source logic, and core mathematical forms are not original creations of this project.
 
 #### 1. Plump Bug (Golden Stippling Hydrodynamic Beetle)
 
@@ -173,7 +180,7 @@ $$p\_{\text{val}} = \exp\left( \sin(d^2 - t + m) \ln(\max(d, 0.05)) \right), \qu
 
 $$\mathbf{v}\_{\text{instant}} = \left( -2.06 \cos(c), -8.25 \cos(4c) \right)^T$$
 
-# 中文完整技术文档与全版本演进白皮书
+# 中文技术文档与版本演进剖析
 
 ## 一、项目定位与系统架构
 
@@ -183,37 +190,37 @@ $$\mathbf{v}\_{\text{instant}} = \left( -2.06 \cos(c), -8.25 \cos(4c) \right)^T$
 
 2. **重型数值流体求解**：如果直接在移动端运行不可压缩 Navier–Stokes 网格求解器，并使用多级 FBO 对速度场和压力场进行 Ping-Pong 迭代，带宽与显存访问成本都会迅速上升。
 
-**AGSL Fluid Wallpaper Engine** 的演进因此分成两个阶段：
+因此，这个项目的演进大致可以分成两个阶段：
 
 - **v1.0.0 ~ v5.1.0**：**混合拉格朗日–解析运动模型**。CPU 负责保存有限的交互历史，GPU 负责连续解析求值，尽量避免依赖外部纹理反馈。
 
-- **v5.2.0 ~ v8.0.0**：**深海微生态运动模型**。渲染对象逐渐从抽象流体变成多个具有独立形态、轨迹、推进和阻尼规则的程序化生物。
+- **v5.2.0 ~ v8.0.0**：**程序化海洋生物阶段**。项目开始加入一组基于数学方程生成的海洋生物，并逐步把它们的形态、轨迹、推进和阻尼整合进整个渲染系统。这里使用的海洋生物作品来自 **X 用户 @yuruyurau（#つぶやきProcessing）**，本项目主要负责 Android/AGSL/Kotlin 侧的移植、重构和整合。
 
-## 二、全版本演进脉络与技术演进 (v1.0.0 ~ v8.0.0)
+## 二、版本演进与实现思路 (v1.0.0 ~ v8.0.0)
 
 ### 2.1 v1.0.0 - 基础对流共形引擎 (Ambient Center Engine)
 
-- **核心目标**：验证 Android 13 原生 AGSL `RuntimeShader` 与壁纸服务 `SurfaceHolder.lockHardwareCanvas()` 的渲染性能极限。
+- **目标**：先把 Android 13 原生 AGSL `RuntimeShader`、壁纸服务和硬件 Canvas 这条渲染链路跑通，并确认它在实际设备上的性能。
 
 - **力学模型**：采用二维稳态复变共形映射：
 
 $$W(z) = \Phi(x, y) + i \Psi(x, y) = \frac{m}{2\pi} \ln(z - z\_0)$$
 
-- **局限反思**：仅支持单点交互；位移场为稳态解析几何，缺乏流体惯性与手速反馈。
+- **当时的问题**：只能处理单点交互，位移是静态解析结果，没有惯性，也没有手速带来的差异。
 
 ### 2.2 v2.0.0 - 离散点源与双指拓扑交互 (Discrete Point-Source Engine)
 
-- **核心目标**：拓展多点触控支持，模拟双指在流体中形成的偶极喷流与拓扑鞍点。
+- **目标**：加入多点触控，并尝试用偶极子流场描述双指交互产生的局部流动。
 
 - **力学模型**：构造反向偶极子流场：
 
 $$W\_{\text{dipole}}(z) = \frac{\boldsymbol{\mu} \cdot (z - z\_0)}{2\pi \vert{}z - z\_0\vert{}^2}$$
 
-- **局限反思**：交互响应强度与手势速度脱节，快划与慢拖体感完全一致。
+- **当时的问题**：交互强度和手势速度没有关系，快划和慢拖出来的效果基本一样。
 
 ### 2.3 v3.0.0 - 因果线段开尔文尾迹引擎 (Causal Segment Wake Wave Engine)
 
-- **核心目标**：引入真实手速物理采样，模拟移动扰动产生的开尔文重力波尾迹。
+- **目标**：把手指移动速度纳入计算，让移动扰动能够产生带方向和速度感的尾迹。
 
 - **力学模型**：
 
@@ -225,11 +232,11 @@ $$\mathbf{v}(t) = \frac{\mathbf{x}(t) - \mathbf{x}(t - \Delta t)}{\Delta t}$$
 
 $$\theta\_{\text{Kelvin}} = \arcsin(1/3) \approx 19.47^\circ$$
 
-- **局限反思**：波形叠加过密导致局部高曝光白斑频发，按住不放时产生刺眼的洋红色杂光伪影。
+- **当时的问题**：波形叠加得太密，局部容易过曝；长时间按住时还会出现明显的紫红色杂光。
 
 ### 2.4 v4.0.0 - 多尺度空间折叠与冷色调净化 (Multi-Scale Organic Fluid Wake)
 
-- **核心目标**：彻底消除紫光与过曝白斑，建立深海冷色调视觉规范。
+- **目标**：把过曝和紫色伪影压下去，同时确定整体的深海冷色视觉方向。
 
 - **数学与光学重塑**：
 
@@ -241,17 +248,17 @@ $$\phi\_0(x, y, z) = \sin(k\_x x) \cos(k\_y y) + \sin(k\_y y) \cos(k\_z z) + \si
 
 $$\mathbf{C}\_{\text{abyss}} = (0.002, 0.004, 0.008)^T, \quad \mathbf{C}\_{\text{deep}} = (0.020, 0.120, 0.280)^T, \quad \mathbf{C}\_{\text{cyan}} = (0.120, 0.680, 0.800)^T$$
 
-- **局限反思**：着色器为纯无状态解析函数，手松开后画面瞬间复原，缺乏旋涡因果记忆。
+- **当时的问题**：着色器本身没有时间记忆，手指一松开，画面就会很快恢复，缺少持续的运动反馈。
 
 ### 2.5 v5.0.0 - 高级黏性油膜撕裂引擎 (Advanced Viscous Oil Engine)
 
-- **核心目标**：实现双指靠近时的表面张力融合以及高速划切时的油层破裂。
+- **目标**：尝试加入双指靠近时的融合效果，以及高速划过时的撕裂效果。
 
-- **重大挫折与架构灾难**：
+- **遇到的问题**：
 
   引入 GPU 离屏 Ping-Pong 双缓冲系统（`RenderNode + HardwareRenderer + ImageReader`）。
 
-- **失败机理剖析**：
+- **为什么失败**：
 
   1. **双线性重采样的数值黏性耗散**：硬件双线性插值在 120 FPS 下于 10~15 帧内产生剧烈数值扩散，精细 Gyroid 纹理被彻底抹平成低频死水蓝。
 
@@ -259,11 +266,11 @@ $$\mathbf{C}\_{\text{abyss}} = (0.002, 0.004, 0.008)^T, \quad \mathbf{C}\_{\text
 
   3. **硬切割遮罩留下无法抚平的僵死黑痕**。
 
-### 2.6 v5.1.0 - 物理流体力学流形重构 (Physical Hydrodynamic Manifold)
+### 2.6 v5.1.0 - 物理流体模型重构 (Physical Hydrodynamic Manifold)
 
-- **架构涅槃**：废除离屏双缓冲，建立**拉格朗日历史点涡栈 + 亥姆霍兹投影 + 连续代数剪切场**。
+- **架构调整**：放弃离屏双缓冲，改用**拉格朗日历史点涡栈 + 亥姆霍兹-霍奇分解 + 连续代数剪切场**。
 
-- **核心物理突破**：
+- **这一版主要解决的问题**：
 
   1. **亥姆霍兹-霍奇投影**：分离无旋场与有旋场，静止轻按仅产生径向高斯位移，旋度严格为零。
 
@@ -273,15 +280,17 @@ $$\mathbf{C}\_{\text{abyss}} = (0.002, 0.004, 0.008)^T, \quad \mathbf{C}\_{\text
 
   4. **代数 Sigmoid 连续剪切破裂**：改用代数有理分式平滑推开相边界，表面张力在 1.5~2.0 秒内自然闭合自愈。
 
-### 2.7 v5.2.0 ~ v7.0.0 - 深海生态演化与高分辨率微扰
+### 2.7 v5.2.0 ~ v7.0.0 - 海洋生物阶段的建立与细化
 
-- **v5.2.0 (Balanced Abyssal Ecology)**：引入海洋生物生态群落概念，加入泊松分布防挤压生成采样，实现独立个体触控响应。
+- **v5.2.0 (Balanced Abyssal Ecology)**：开始把海洋生物加入渲染系统，使用泊松式散布避免个体过度重叠，并让每个个体可以独立响应触控。生物模型来自 **X 用户 @yuruyurau（#つぶやきProcessing）** 的原创作品。
 
-- **v6.0.0 (High-Performance Engine Update)**：剔除每帧临时对象分配，消除 120Hz 下的 GC 停顿；使用内联欧氏距离计算；实现微型小水母解耦。
+- **v6.0.0 (High-Performance Engine Update)**：继续清理每帧对象分配，减少 120Hz 下的 GC 抖动；同时把部分距离计算内联，并把微型小水母从群体逻辑中独立出来。
 
-- **v7.0.0 (Refined Engine & Sharp Rendering)**：恢复万点级高精点阵渲染；在胖虫数学方程中注入时变相位扫描行波，使金粉流光覆盖全域；建立五层深度亮度衰减系统。
+- **v7.0.0 (Refined Engine & Sharp Rendering)**：恢复万点级点阵细节，给胖虫模型加入随时间变化的相位扫描，并重新调整深度分层和亮度衰减。
 
-### 2.8 v8.0.0 - 运动学拓扑重构与原生环游基线 (Kinematics & Native Orbit Update - 当前版本)
+### 2.8 v8.0.0 - 运动方式重构与原生环游 (Kinematics & Native Orbit Update - 当前版本)
+
+> **Credit:** v5.2.0 之后的海洋生物模型均基于 **@yuruyurau（#つぶやきProcessing）** 的原创作品。本版本中的改动主要集中在运动逻辑、交互响应、参数调整以及 Android/AGSL 实现。
 
 - **经典长水母大半径回环（覆盖 50% 屏幕）**：
 
